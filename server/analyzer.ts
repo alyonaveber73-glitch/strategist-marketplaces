@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx'
+import { detectPreset } from './reportPresets.js'
 import type { ProductMetric, ReportType, Totals, UnitEconomics } from './types.js'
 
 type RawRow = Record<string, string | number | null | undefined>
@@ -41,14 +42,18 @@ function getByAliases(row: RawRow, names: string[]) {
 }
 
 function detectReportType(sheetName: string, rows: RawRow[]): ReportType {
+  const headersList = Object.keys(rows[0] || {})
+  const preset = detectPreset(sheetName, headersList)
+  if (preset) return preset.reportType
+
   const sheet = normalizeHeader(sheetName)
-  const headers = Object.keys(rows[0] || {}).map(normalizeHeader).join(' | ')
+  const headers = headersList.map(normalizeHeader).join(' | ')
   const haystack = `${sheet} | ${headers}`
 
-  if (haystack.match(/реклам|клик|показ|расход|cpc|ctr/)) return 'ads'
+  if (haystack.match(/реклам|клик|показ|расход|затраты|cpc|ctr/)) return 'ads'
   if (haystack.match(/остат|склад|stock|fbo|fbs/)) return 'stocks'
   if (haystack.match(/акци|скид|промо|promo/)) return 'promotions'
-  if (haystack.match(/заказ|продаж|выруч|оплачен|sales/)) return 'sales'
+  if (haystack.match(/заказ|продаж|выруч|оплачен|sales|перечислению/)) return 'sales'
   return 'unknown'
 }
 
@@ -178,4 +183,22 @@ export function analyzeBuffer(buffer: Buffer, fileName: string, unitMap: UnitMap
 
   const rows = parseRows(rawRows, unitMap)
   return { rows, totals: totals(rows), sheetNames: workbook.SheetNames, reportTypes: [...reportTypes] }
+}
+
+export function parseUnitEconomicsBuffer(buffer: Buffer, fileName: string) {
+  const lower = fileName.toLowerCase()
+  const workbook = lower.endsWith('.csv') ? XLSX.read(buffer.toString('utf8'), { type: 'string' }) : XLSX.read(buffer, { type: 'buffer' })
+  const rawRows = workbook.SheetNames.flatMap((sheetName) => XLSX.utils.sheet_to_json<RawRow>(workbook.Sheets[sheetName], { defval: '' }))
+
+  return rawRows
+    .map((row) => ({
+      sku: String(getByAliases(row, ['sku', 'артикул', 'nmId', 'barcode', 'баркод']) || '').trim(),
+      name: String(getByAliases(row, ['название', 'товар', 'name', 'предмет']) || '').trim(),
+      cost: toNumber(getByAliases(row, ['себестоимость', 'cost'])),
+      commission: toNumber(getByAliases(row, ['комиссия', 'commission'])),
+      acquiring: toNumber(getByAliases(row, ['эквайринг', 'acquiring'])),
+      logistics: toNumber(getByAliases(row, ['логистика', 'logistics'])),
+      tax: toNumber(getByAliases(row, ['налог', 'tax'])) || toNumber(getByAliases(row, ['налог %', 'tax %'])) / 100,
+    }))
+    .filter((item) => item.sku)
 }

@@ -1,4 +1,4 @@
-import type { Analysis, Project, UnitEconomics, User } from '../types/analytics'
+import type { Analysis, Invite, Plan, Project, Role, UnitEconomics, User } from '../types/analytics'
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8787'
 const TOKEN_KEY = 'marketplace-strategist-token'
@@ -75,6 +75,41 @@ export async function saveUnitEconomics(items: Array<Partial<UnitEconomics> & { 
   if (!response.ok) throw new Error('Не удалось сохранить справочник')
   const data = (await response.json()) as { items: UnitEconomics[] }
   return data.items
+}
+
+export async function importUnitEconomics(file: File) {
+  const form = new FormData()
+  form.append('file', file)
+  const response = await fetch(`${API_BASE}/api/unit-economics/import`, { method: 'POST', headers: headers(), body: form })
+  if (!response.ok) throw new Error('Не удалось импортировать справочник')
+  return (await response.json()) as { items: UnitEconomics[]; imported: number }
+}
+
+export async function fetchInvites(): Promise<Invite[]> {
+  const response = await fetch(`${API_BASE}/api/team/invites`, { headers: headers() })
+  if (!response.ok) return []
+  const data = (await response.json()) as { invites: Invite[] }
+  return data.invites
+}
+
+export async function createInvite(email: string, role: Role) {
+  const response = await fetch(`${API_BASE}/api/team/invites`, {
+    method: 'POST',
+    headers: { ...headers(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, role }),
+  })
+  if (!response.ok) throw new Error('Не удалось создать приглашение')
+  return (await response.json()) as { invite: Invite }
+}
+
+export async function createCheckout(plan: Plan) {
+  const response = await fetch(`${API_BASE}/api/billing/checkout`, {
+    method: 'POST',
+    headers: { ...headers(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ plan }),
+  })
+  if (!response.ok) throw new Error('Не удалось создать оплату')
+  return (await response.json()) as { mode: 'demo' | 'stripe'; plan: Plan; checkoutUrl?: string; message?: string }
 }
 
 export async function uploadAnalysis(file: File, projectName: string, projectId?: string) {

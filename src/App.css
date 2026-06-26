@@ -353,12 +353,38 @@ td strong {
   padding: 10px;
 }
 
-.unit-form button {
-  grid-column: 1 / -1;
+.unit-form select,
+.unit-form button,
+.mini-upload {
+  min-width: 0;
+  border: 1px solid rgba(24, 32, 51, 0.1);
+  border-radius: 12px;
+  padding: 10px;
+}
+
+.unit-form button,
+.mini-upload,
+.billing-actions button {
   color: #fff;
   background: #182033;
   font-weight: 900;
   cursor: pointer;
+}
+
+.mini-upload input {
+  display: none;
+}
+
+.billing-actions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.billing-actions button {
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 16px;
 }
 
 .history-list button {

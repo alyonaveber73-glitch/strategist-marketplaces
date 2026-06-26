@@ -66,10 +66,25 @@ export type Project = {
   analyses: Analysis[]
 }
 
+export type Role = 'owner' | 'admin' | 'analyst' | 'viewer'
+export type Plan = 'free' | 'pro' | 'team'
+
 export type User = {
   id: string
   email: string
   name: string
+  createdAt: string
+  role?: Role
+  plan?: Plan
+}
+
+export type Invite = {
+  id: string
+  userId: string
+  email: string
+  role: Role
+  token: string
+  status: 'pending' | 'accepted' | 'expired'
   createdAt: string
 }
 

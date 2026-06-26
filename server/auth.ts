@@ -7,7 +7,7 @@ import type { User } from './types.js'
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me'
 
-type UserRow = { id: string; email: string; name: string; created_at: string }
+type UserRow = { id: string; email: string; name: string; created_at: string; role?: string; plan?: string }
 
 declare global {
   namespace Express {
@@ -18,7 +18,7 @@ declare global {
 }
 
 function toUser(row: UserRow): User {
-  return { id: row.id, email: row.email, name: row.name, createdAt: row.created_at }
+  return { id: row.id, email: row.email, name: row.name, createdAt: row.created_at, role: (row.role || 'owner') as User['role'], plan: (row.plan || 'free') as User['plan'] }
 }
 
 export function createToken(user: User) {
@@ -29,14 +29,16 @@ export function registerUser(email: string, password: string, name: string) {
   const id = randomUUID()
   const createdAt = new Date().toISOString()
   const passwordHash = bcrypt.hashSync(password, 10)
-  db.prepare('INSERT INTO users (id, email, password_hash, name, created_at) VALUES (?, ?, ?, ?, ?)').run(
+  db.prepare('INSERT INTO users (id, email, password_hash, name, created_at, role, plan) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
     id,
     email.toLowerCase(),
     passwordHash,
     name,
     createdAt,
+    'owner',
+    'free',
   )
-  return { id, email: email.toLowerCase(), name, createdAt }
+  return { id, email: email.toLowerCase(), name, createdAt, role: 'owner' as const, plan: 'free' as const }
 }
 
 export function loginUser(email: string, password: string) {
@@ -56,7 +58,7 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as { sub: string }
-    const row = db.prepare('SELECT id, email, name, created_at FROM users WHERE id = ?').get(decoded.sub) as UserRow | undefined
+    const row = db.prepare('SELECT id, email, name, created_at, role, plan FROM users WHERE id = ?').get(decoded.sub) as UserRow | undefined
     if (!row) {
       res.status(401).json({ error: 'AUTH_REQUIRED' })
       return

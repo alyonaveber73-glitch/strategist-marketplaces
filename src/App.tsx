@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import './App.css'
-import { exportUrl, fetchProjects, fetchUnitEconomics, login, logout, me, register, saveUnitEconomics, uploadAnalysis } from './lib/api'
-import type { Analysis, ProductMetric, Project, Strategy, Totals, UnitEconomics, User } from './types/analytics'
+import { createCheckout, createInvite, exportUrl, fetchInvites, fetchProjects, fetchUnitEconomics, importUnitEconomics, login, logout, me, register, saveUnitEconomics, uploadAnalysis } from './lib/api'
+import type { Analysis, Invite, ProductMetric, Project, Role, Strategy, Totals, UnitEconomics, User } from './types/analytics'
 
 const demoRows: ProductMetric[] = [
   { sku: '3834285502', name: 'Молочко-тонер увлажняющий', category: 'Тоники', revenue: 146_211, orders: 151, adSpend: 16_790, margin: 46_815, impressions: 55_202, clicks: 2_946, carts: 822, stock: 84, promoRevenue: 0, costTotal: 14_929, commissionTotal: 67_950, acquiringTotal: 1_661, logisticsTotal: 0, taxTotal: 0 },
@@ -36,6 +36,9 @@ export default function App() {
   const [analysis, setAnalysis] = useState<Analysis>(demoAnalysis)
   const [projects, setProjects] = useState<Project[]>([])
   const [units, setUnits] = useState<UnitEconomics[]>([])
+  const [invites, setInvites] = useState<Invite[]>([])
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [inviteRole, setInviteRole] = useState<Role>('viewer')
   const [draftUnit, setDraftUnit] = useState({ sku: '', name: '', cost: 0, commission: 0, acquiring: 0, logistics: 0, tax: 0 })
   const [projectName, setProjectName] = useState('Новый проект Ozon')
   const [loading, setLoading] = useState(false)
@@ -52,9 +55,10 @@ export default function App() {
   const latestAnalyses = useMemo(() => projects.flatMap((project) => project.analyses.map((item) => ({ ...item, projectName: project.name }))).slice(0, 8), [projects])
 
   async function refresh() {
-    const [loadedProjects, loadedUnits] = await Promise.all([fetchProjects(), fetchUnitEconomics()])
+    const [loadedProjects, loadedUnits, loadedInvites] = await Promise.all([fetchProjects(), fetchUnitEconomics(), fetchInvites()])
     setProjects(loadedProjects)
     setUnits(loadedUnits)
+    setInvites(loadedInvites)
     if (loadedProjects[0]?.analyses[0]) setAnalysis(loadedProjects[0].analyses[0])
   }
 
@@ -80,6 +84,27 @@ export default function App() {
       setServerMessage(`Готово: распознаны типы отчётов — ${result.analysis.reportTypes.join(', ')}`)
     } catch { setServerMessage('Не получилось обработать файл. Проверьте backend и формат файла.') }
     finally { setLoading(false) }
+  }
+
+  async function importUnits(file: File | null) {
+    if (!file || !user) return
+    const result = await importUnitEconomics(file)
+    setUnits(result.items)
+    setServerMessage(`Импортировано SKU: ${result.imported}`)
+  }
+
+  async function addInvite() {
+    if (!inviteEmail) return
+    await createInvite(inviteEmail, inviteRole)
+    setInviteEmail('')
+    setInvites(await fetchInvites())
+    setServerMessage('Приглашение создано')
+  }
+
+  async function startCheckout(plan: 'pro' | 'team') {
+    const result = await createCheckout(plan)
+    if (result.checkoutUrl) window.location.href = result.checkoutUrl
+    else setServerMessage(result.message || `Billing demo: выбран тариф ${plan}`)
   }
 
   async function addUnit() {
@@ -120,7 +145,9 @@ export default function App() {
 
     <section className="content-grid">
       <div className="panel wide"><div className="panel-header"><h2>ТОП товаров</h2><p>Продажи, ДДР, маржа, остатки и расходы по справочнику.</p></div><div className="table-wrap"><table><thead><tr><th>Товар</th><th>Категория</th><th>Продажи</th><th>ДДР</th><th>Маржа</th><th>Остаток</th></tr></thead><tbody>{[...rows].sort((a, b) => b.revenue - a.revenue).map((row) => <tr key={row.sku}><td><strong>{row.name}</strong><small>{row.sku}</small></td><td>{row.category}</td><td>{money(row.revenue)}</td><td>{percent(row.adSpend / Math.max(row.revenue, 1))}</td><td>{money(row.margin)}</td><td>{row.stock}</td></tr>)}</tbody></table></div></div>
-      <div className="panel"><h2>Справочник юнит-экономики</h2><div className="unit-form"><input placeholder="SKU" value={draftUnit.sku} onChange={(e) => setDraftUnit({ ...draftUnit, sku: e.target.value })} /><input placeholder="Название" value={draftUnit.name} onChange={(e) => setDraftUnit({ ...draftUnit, name: e.target.value })} /><input placeholder="Себестоимость" type="number" value={draftUnit.cost} onChange={(e) => setDraftUnit({ ...draftUnit, cost: Number(e.target.value) })} /><input placeholder="Комиссия" type="number" value={draftUnit.commission} onChange={(e) => setDraftUnit({ ...draftUnit, commission: Number(e.target.value) })} /><input placeholder="Эквайринг" type="number" value={draftUnit.acquiring} onChange={(e) => setDraftUnit({ ...draftUnit, acquiring: Number(e.target.value) })} /><button onClick={addUnit}>Сохранить SKU</button></div><small>Записей: {units.length}</small></div>
+      <div className="panel"><h2>Справочник юнит-экономики</h2><div className="unit-form"><input placeholder="SKU" value={draftUnit.sku} onChange={(e) => setDraftUnit({ ...draftUnit, sku: e.target.value })} /><input placeholder="Название" value={draftUnit.name} onChange={(e) => setDraftUnit({ ...draftUnit, name: e.target.value })} /><input placeholder="Себестоимость" type="number" value={draftUnit.cost} onChange={(e) => setDraftUnit({ ...draftUnit, cost: Number(e.target.value) })} /><input placeholder="Комиссия" type="number" value={draftUnit.commission} onChange={(e) => setDraftUnit({ ...draftUnit, commission: Number(e.target.value) })} /><input placeholder="Эквайринг" type="number" value={draftUnit.acquiring} onChange={(e) => setDraftUnit({ ...draftUnit, acquiring: Number(e.target.value) })} /><button onClick={addUnit}>Сохранить SKU</button><label className="mini-upload">Импорт XLSX<input type="file" accept=".csv,.xlsx,.xls,.ods" onChange={(e) => importUnits(e.target.files?.[0] ?? null)} /></label></div><small>Записей: {units.length}</small></div>
+      <div className="panel"><h2>Команда</h2><div className="unit-form"><input placeholder="Email сотрудника" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} /><select value={inviteRole} onChange={(e) => setInviteRole(e.target.value as Role)}><option value="viewer">viewer</option><option value="analyst">analyst</option><option value="admin">admin</option></select><button onClick={addInvite}>Пригласить</button></div><small>Инвайтов: {invites.length}</small></div>
+      <div className="panel"><h2>Тарифы</h2><div className="billing-actions"><button onClick={() => startCheckout('pro')}>Pro</button><button onClick={() => startCheckout('team')}>Team</button></div><small>Если Stripe не настроен — включается demo billing.</small></div>
       <div className="panel"><h2>Риски</h2><ul className="insight-list">{strategy.risks.map((risk) => <li key={risk}>{risk}</li>)}</ul></div>
       <div className="panel"><h2>Рекомендации на месяц</h2><ol className="action-list">{strategy.actions.map((action) => <li key={action}>{action}</li>)}</ol></div>
       <div className="panel"><h2>История анализов</h2><ul className="history-list">{latestAnalyses.map((item) => <li key={item.id}><button onClick={() => setAnalysis(item)}>{item.projectName}<small>{item.fileName} · {item.reportTypes.join(', ')}</small></button></li>)}</ul></div>

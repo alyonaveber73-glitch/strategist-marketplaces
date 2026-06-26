@@ -4,15 +4,19 @@ import express from 'express'
 import fs from 'node:fs/promises'
 import multer from 'multer'
 import { randomUUID } from 'node:crypto'
-import { analyzeBuffer } from './analyzer.js'
+import { analyzeBuffer, parseUnitEconomicsBuffer } from './analyzer.js'
+import { createCheckout } from './billing.js'
 import { createToken, loginUser, registerUser, requireAuth } from './auth.js'
 import { migrate } from './db.js'
+import { migratePostgres, postgresEnabled } from './pg.js'
 import { exportAnalysisPdf, exportAnalysisXlsx } from './exporters.js'
 import { buildAiStrategy } from './strategy.js'
 import { findAnalysis, getUnitEconomicsMap, listUnitEconomics, readProjects, updateAnalysisStrategy, upsertAnalysis, upsertUnitEconomics } from './storage.js'
-import type { Analysis, Project } from './types.js'
+import { createInvite, listInvites } from './team.js'
+import type { Analysis, Plan, Project, Role } from './types.js'
 
 migrate()
+await migratePostgres()
 
 const app = express()
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } })
@@ -22,7 +26,7 @@ app.use(cors())
 app.use(express.json({ limit: '5mb' }))
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, ai: Boolean(process.env.OPENAI_API_KEY), storage: 'sqlite' })
+  res.json({ ok: true, ai: Boolean(process.env.OPENAI_API_KEY), storage: postgresEnabled ? 'postgres-ready' : 'sqlite' })
 })
 
 app.post('/api/auth/register', (req, res, next) => {
@@ -65,6 +69,38 @@ app.get('/api/unit-economics', requireAuth, (req, res) => {
 app.post('/api/unit-economics', requireAuth, (req, res) => {
   const items = Array.isArray(req.body.items) ? req.body.items : [req.body]
   res.json({ items: upsertUnitEconomics(req.user!.id, items) })
+})
+
+app.post('/api/unit-economics/import', requireAuth, upload.single('file'), (req, res) => {
+  if (!req.file) {
+    res.status(400).json({ error: 'FILE_REQUIRED' })
+    return
+  }
+  const items = parseUnitEconomicsBuffer(req.file.buffer, req.file.originalname)
+  res.json({ items: upsertUnitEconomics(req.user!.id, items), imported: items.length })
+})
+
+app.get('/api/team/invites', requireAuth, (req, res) => {
+  res.json({ invites: listInvites(req.user!.id) })
+})
+
+app.post('/api/team/invites', requireAuth, (req, res) => {
+  const email = String(req.body.email || '').trim()
+  const role = String(req.body.role || 'viewer') as Role
+  if (!email) {
+    res.status(400).json({ error: 'EMAIL_REQUIRED' })
+    return
+  }
+  res.json({ invite: createInvite(req.user!.id, email, role) })
+})
+
+app.post('/api/billing/checkout', requireAuth, async (req, res, next) => {
+  try {
+    const plan = String(req.body.plan || 'pro') as Plan
+    res.json(await createCheckout(req.user!.id, plan))
+  } catch (error) {
+    next(error)
+  }
 })
 
 app.post('/api/analyze', requireAuth, upload.single('file'), async (req, res, next) => {

@@ -8,7 +8,9 @@ MVP+ AI-платформы для продавцов маркетплейсов:
 - Backend: Express API.
 - Авторизация продавца: регистрация, вход, JWT-сессия.
 - Хранение проектов, истории и справочников в SQLite: `server/data/app.sqlite`.
+- PostgreSQL migrations-ready режим через `DATABASE_URL`; SQLite остаётся fallback для локальной разработки.
 - Серверная загрузка CSV, XLSX, XLS и ODS.
+- Готовые пресеты под выгрузки Ozon/Wildberries.
 - Нормализация типов отчётов:
   - продажи;
   - реклама;
@@ -20,6 +22,10 @@ MVP+ AI-платформы для продавцов маркетплейсов:
   - эквайринг;
   - логистика;
   - налог.
+- Импорт справочника юнит-экономики из XLSX/CSV/ODS.
+- Роли команды и приглашения сотрудников.
+- Billing API под Stripe: безопасный demo-mode без ключа.
+- Docker Compose конфиг для деплоя с PostgreSQL.
 - Метрики:
   - продажи;
   - заказы;
@@ -55,12 +61,16 @@ npm run dev
 
 ```bash
 PORT=8787
-JWT_SECRET=change-me-in-production
-OPENAI_API_KEY=...
+JWT_SECRET=change…tion
+DATABASE_URL=postgres://user:password@host:5432/db
+OPENAI_API_KEY=***
 OPENAI_MODEL=gpt-4o-mini
+STRIPE_SECRET_KEY=sk_live_...
+STRIPE_PRO_PRICE_ID=price_...
+STRIPE_TEAM_PRICE_ID=price_...
 ```
 
-Если AI-ключ не задан, сервис использует встроенную rule-based стратегию.
+Если AI-ключ не задан, сервис использует встроенную rule-based стратегию. Если Stripe-ключ не задан, billing работает в demo-mode и никого не списывает.
 
 ## Экспорт
 
@@ -69,10 +79,14 @@ OPENAI_MODEL=gpt-4o-mini
 - `/api/export/:analysisId.xlsx`
 - `/api/export/:analysisId.pdf`
 
+## Deploy
+
+См. `DEPLOY.md` и `docker-compose.yml`.
+
 ## Ближайшие задачи
 
-1. Добавить готовые пресеты под конкретные выгрузки Ozon и Wildberries.
-2. Сделать импорт справочника юнит-экономики из XLSX.
-3. Перенести SQLite на PostgreSQL для продакшена.
-4. Добавить роли команды и приглашения сотрудников.
-5. Подключить оплату/тарифы и деплой.
+1. Подключить Stripe webhook и обработку успешной оплаты.
+2. Полностью перевести runtime-хранилище на PostgreSQL-репозитории, оставив SQLite только для dev.
+3. Добавить визуальный конструктор отчётов и бренд-настройки клиента.
+4. Сделать e2e-тесты загрузки реальных отчётов Ozon/WB.
+5. Задеплоить на выбранный хостинг после подтверждения домена и ключей.
