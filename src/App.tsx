@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import * as XLSX from 'xlsx'
 import './App.css'
 
 type ProductMetric = {
@@ -125,27 +126,42 @@ function buildStrategy(rows: ProductMetric[]): Strategy {
   }
 }
 
-function parseCsv(text: string): ProductMetric[] {
-  const lines = text.split(/\r?\n/).filter(Boolean)
-  if (lines.length < 2) return []
+type RawRow = Record<string, string | number | null | undefined>
 
-  const delimiter = lines[0].includes(';') ? ';' : ','
-  const headers = lines[0].split(delimiter).map((header) => header.trim().toLowerCase())
+const aliases = {
+  sku: ['sku', 'артикул', 'id товара', 'товар'],
+  name: ['название', 'наименование', 'name'],
+  category: ['категория', 'предмет', 'category'],
+  revenue: ['продаж', 'заказано', 'выруч', 'revenue', 'sales', 'оплачено'],
+  orders: ['заказ', 'количество', 'orders', 'шт'],
+  adSpend: ['расход', 'реклама', 'spend'],
+  margin: ['марж', 'margin', 'прибыль'],
+  impressions: ['показ', 'impression'],
+  clicks: ['клик', 'click'],
+  carts: ['корзин', 'cart', 'добавления'],
+}
 
-  const get = (cells: string[], names: string[]) => {
-    const index = headers.findIndex((header) => names.some((name) => header.includes(name)))
-    return index >= 0 ? cells[index]?.trim() ?? '' : ''
-  }
+function toNumber(value: unknown) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0
+  if (value === null || value === undefined) return 0
+  return Number(String(value).replace(/[^0-9,.-]/g, '').replace(',', '.')) || 0
+}
 
-  const toNumber = (value: string) => Number(value.replace(/[^0-9,.-]/g, '').replace(',', '.')) || 0
+function getByAliases(row: RawRow, names: string[]) {
+  const entry = Object.entries(row).find(([key]) => {
+    const normalized = key.trim().toLowerCase()
+    return names.some((name) => normalized.includes(name))
+  })
+  return entry?.[1] ?? ''
+}
 
+function parseRows(rawRows: RawRow[]): ProductMetric[] {
   const grouped = new Map<string, ProductMetric>()
 
-  for (const line of lines.slice(1)) {
-    const cells = line.split(delimiter)
-    const sku = get(cells, ['sku', 'артикул', 'товар']) || `row-${grouped.size + 1}`
-    const name = get(cells, ['название', 'name']) || sku
-    const category = get(cells, ['категория', 'предмет', 'category']) || 'Без категории'
+  for (const row of rawRows) {
+    const sku = String(getByAliases(row, aliases.sku) || `row-${grouped.size + 1}`).trim()
+    const name = String(getByAliases(row, aliases.name) || sku).trim()
+    const category = String(getByAliases(row, aliases.category) || 'Без категории').trim()
     const current = grouped.get(sku) ?? {
       sku,
       name,
@@ -159,18 +175,48 @@ function parseCsv(text: string): ProductMetric[] {
       carts: 0,
     }
 
-    current.revenue += toNumber(get(cells, ['продаж', 'заказано', 'выруч', 'revenue', 'sales']))
-    current.orders += toNumber(get(cells, ['заказ', 'количество', 'orders']))
-    current.adSpend += toNumber(get(cells, ['расход', 'реклама', 'spend']))
-    current.margin += toNumber(get(cells, ['марж', 'margin']))
-    current.impressions += toNumber(get(cells, ['показ', 'impression']))
-    current.clicks += toNumber(get(cells, ['клик', 'click']))
-    current.carts += toNumber(get(cells, ['корзин', 'cart']))
+    current.revenue += toNumber(getByAliases(row, aliases.revenue))
+    current.orders += toNumber(getByAliases(row, aliases.orders))
+    current.adSpend += toNumber(getByAliases(row, aliases.adSpend))
+    current.margin += toNumber(getByAliases(row, aliases.margin))
+    current.impressions += toNumber(getByAliases(row, aliases.impressions))
+    current.clicks += toNumber(getByAliases(row, aliases.clicks))
+    current.carts += toNumber(getByAliases(row, aliases.carts))
 
     grouped.set(sku, current)
   }
 
   return [...grouped.values()].filter((row) => row.revenue || row.orders || row.adSpend || row.impressions)
+}
+
+function parseCsv(text: string): ProductMetric[] {
+  const workbook = XLSX.read(text, { type: 'string' })
+  return parseWorkbook(workbook)
+}
+
+function parseWorkbook(workbook: XLSX.WorkBook): ProductMetric[] {
+  const parsedRows = workbook.SheetNames.flatMap((sheetName) => {
+    const sheet = workbook.Sheets[sheetName]
+    return XLSX.utils.sheet_to_json<RawRow>(sheet, { defval: '' })
+  })
+
+  return parseRows(parsedRows)
+}
+
+async function parseFile(file: File): Promise<ProductMetric[]> {
+  const extension = file.name.split('.').pop()?.toLowerCase()
+
+  if (extension === 'csv') {
+    return parseCsv(await file.text())
+  }
+
+  if (['xlsx', 'xls', 'ods'].includes(extension ?? '')) {
+    const buffer = await file.arrayBuffer()
+    const workbook = XLSX.read(buffer, { type: 'array' })
+    return parseWorkbook(workbook)
+  }
+
+  throw new Error('UNSUPPORTED_FILE')
 }
 
 export default function App() {
@@ -190,17 +236,15 @@ export default function App() {
     if (!file) return
     setFileName(file.name)
 
-    if (!file.name.toLowerCase().endsWith('.csv')) {
-      alert('В MVP пока поддержан CSV. XLSX/ODS добавим следующим шагом.')
-      return
-    }
-
-    const text = await file.text()
-    const parsed = parseCsv(text)
-    if (parsed.length) {
-      setRows(parsed)
-    } else {
-      alert('Не получилось распознать колонки. Пока оставила демо-данные.')
+    try {
+      const parsed = await parseFile(file)
+      if (parsed.length) {
+        setRows(parsed)
+      } else {
+        alert('Не получилось распознать колонки. Пока оставила демо-данные.')
+      }
+    } catch {
+      alert('Пока поддержаны CSV, XLSX, XLS и ODS. Попробуй загрузить файл в одном из этих форматов.')
     }
   }
 
@@ -216,8 +260,8 @@ export default function App() {
           </p>
           <div className="hero-actions">
             <label className="upload-button">
-              Загрузить CSV
-              <input type="file" accept=".csv" onChange={(event) => onFileUpload(event.target.files?.[0] ?? null)} />
+              Загрузить CSV/XLSX/ODS
+              <input type="file" accept=".csv,.xlsx,.xls,.ods" onChange={(event) => onFileUpload(event.target.files?.[0] ?? null)} />
             </label>
             <span className="file-name">Источник: {fileName}</span>
           </div>
