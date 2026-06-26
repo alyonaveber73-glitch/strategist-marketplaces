@@ -7,26 +7,32 @@ function pct(value: number) {
 export function buildRuleStrategy(rows: ProductMetric[], totals: Totals): Strategy {
   const sortedByMargin = [...rows].sort((a, b) => b.margin - a.margin)
   const ddr = totals.adSpend / Math.max(totals.revenue, 1)
+  const lowStock = [...rows].filter((row) => row.stock > 0 && row.orders > 0 && row.stock < row.orders * 0.5).sort((a, b) => a.stock - b.stock)
   const highSpendLowMargin = [...rows]
     .filter((row) => row.adSpend / Math.max(row.revenue, 1) > 0.2 || row.margin / Math.max(row.revenue, 1) < 0.15)
     .sort((a, b) => b.adSpend - a.adSpend)
 
   return {
     source: 'rules',
-    headline: `Цель месяца: удержать ДДР около ${pct(ddr)}, масштабировать маржинальные SKU и отключить неэффективные рекламные связки.`,
+    headline: `Цель месяца: удержать ДДР около ${pct(ddr)}, масштабировать маржинальные SKU и контролировать остатки/акции.`,
     focusProducts: sortedByMargin.slice(0, 3),
     risks: [
       highSpendLowMargin[0]
         ? `Высокий ДДР или слабая маржа у «${highSpendLowMargin[0].name}»: сначала чистим рекламу, потом масштабируем.`
         : 'Критичных провалов по рекламе не видно — можно аккуратно масштабировать лидеров.',
-      'Если остатки по ТОП-SKU ниже месячного спроса, рост упрётся в out-of-stock.',
-      'Низкая корзина→заказ обычно означает проблему цены, отзывов, доставки или оффера.',
+      lowStock[0]
+        ? `Риск out-of-stock у «${lowStock[0].name}»: остаток ниже текущего темпа заказов.`
+        : 'По остаткам явного критичного риска не видно, но ТОП-SKU всё равно нужно держать под контролем.',
+      totals.costTotal
+        ? 'Маржа считается с учётом себестоимости, комиссии, эквайринга, логистики и налогов из справочника.'
+        : 'Справочник себестоимости не заполнен полностью — маржа может быть завышена.',
     ],
     actions: [
-      'Разделить товары на 3 группы: масштабировать, удерживать, заморозить рекламу.',
-      'Оставить рекламный бюджет на SKU с положительной маржой и управляемым ДДР.',
-      'Для ТОП-3 товаров обновить главное фото, SEO-заголовок, инфографику и блок выгод.',
-      'Отключить запросы/кампании без заказов, ставки повышать только там, где есть продажи.',
+      'Разделить товары на 3 группы: масштабировать, удерживать, остановить рекламу.',
+      'Оставить бюджет на SKU с положительной маржой и управляемым ДДР; убыточные кампании отключить.',
+      'Для ТОП-3 маржинальных товаров обновить главное фото, SEO-заголовок, инфографику и блок выгод.',
+      'Проверить остатки по лидерам и запланировать поставку минимум на 30 дней продаж.',
+      'Акции запускать только на SKU, где после скидки остаётся положительная маржа.',
       'Через 7 дней сравнить продажи, ДДР, маржу и три конверсии; бюджет перераспределить по факту.',
     ],
   }
@@ -37,7 +43,7 @@ export async function buildAiStrategy(rows: ProductMetric[], totals: Totals): Pr
   if (!apiKey) return buildRuleStrategy(rows, totals)
 
   const fallback = buildRuleStrategy(rows, totals)
-  const topRows = [...rows].sort((a, b) => b.revenue - a.revenue).slice(0, 15)
+  const topRows = [...rows].sort((a, b) => b.revenue - a.revenue).slice(0, 20)
 
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -52,14 +58,11 @@ export async function buildAiStrategy(rows: ProductMetric[], totals: Totals): Pr
           {
             role: 'system',
             content:
-              'Ты эксперт по Ozon/Wildberries. Верни только JSON: headline string, risks string[], actions string[]. Пиши по-русски, конкретно, для продавца маркетплейса.',
+              'Ты эксперт по Ozon/Wildberries. Верни только JSON: headline string, risks string[], actions string[]. Учитывай продажи, рекламу, остатки, акции, себестоимость, комиссии, эквайринг, логистику, налоги. Пиши по-русски, конкретно, для продавца маркетплейса.',
           },
-          {
-            role: 'user',
-            content: JSON.stringify({ totals, products: topRows }),
-          },
+          { role: 'user', content: JSON.stringify({ totals, products: topRows }) },
         ],
-        temperature: 0.4,
+        temperature: 0.35,
       }),
     })
 

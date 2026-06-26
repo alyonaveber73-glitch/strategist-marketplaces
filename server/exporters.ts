@@ -29,12 +29,20 @@ export async function exportAnalysisXlsx(analysis: Analysis) {
     workbook,
     XLSX.utils.aoa_to_sheet([
       ['Метрика', 'Значение'],
+      ['Типы отчётов', analysis.reportTypes.join(', ')],
       ['Продажи', totals.revenue],
       ['Заказы', totals.orders],
       ['Реклама', totals.adSpend],
       ['ДДР', totals.adSpend / Math.max(totals.revenue, 1)],
+      ['Себестоимость', totals.costTotal],
+      ['Комиссия', totals.commissionTotal],
+      ['Эквайринг', totals.acquiringTotal],
+      ['Логистика', totals.logisticsTotal],
+      ['Налоги', totals.taxTotal],
       ['Маржа', totals.margin],
       ['Маржа %', totals.margin / Math.max(totals.revenue, 1)],
+      ['Остатки', totals.stock],
+      ['Акции/промо', totals.promoRevenue],
       ['Показы', totals.impressions],
       ['Клики', totals.clicks],
       ['Корзины', totals.carts],
@@ -53,8 +61,15 @@ export async function exportAnalysisXlsx(analysis: Analysis) {
         Заказы: row.orders,
         Реклама: row.adSpend,
         ДДР: row.adSpend / Math.max(row.revenue, 1),
+        Себестоимость: row.costTotal,
+        Комиссия: row.commissionTotal,
+        Эквайринг: row.acquiringTotal,
+        Логистика: row.logisticsTotal,
+        Налоги: row.taxTotal,
         Маржа: row.margin,
         'Маржа %': row.margin / Math.max(row.revenue, 1),
+        Остатки: row.stock,
+        Акции: row.promoRevenue,
         Показы: row.impressions,
         Клики: row.clicks,
         Корзины: row.carts,
@@ -86,40 +101,60 @@ export async function exportAnalysisPdf(analysis: Analysis) {
   const filePath = path.join(EXPORT_DIR, `${analysis.id}.pdf`)
 
   await new Promise<void>((resolve, reject) => {
-    const doc = new PDFDocument({ margin: 48 })
+    const doc = new PDFDocument({ margin: 44, size: 'A4' })
     const stream = fs.createWriteStream(filePath)
     doc.pipe(stream)
 
-    doc.fontSize(22).text('Отчёт: Стратег для маркетплейсов')
-    doc.moveDown(0.5).fontSize(11).fillColor('#666').text(`Файл: ${analysis.fileName}`)
-    doc.text(`Дата анализа: ${new Date(analysis.createdAt).toLocaleString('ru-RU')}`)
-    doc.moveDown().fillColor('#000')
+    doc.rect(0, 0, doc.page.width, 128).fill('#182033')
+    doc.fillColor('#FFC887').fontSize(11).text('СТРАТЕГ ДЛЯ МАРКЕТПЛЕЙСОВ', 44, 34, { characterSpacing: 1 })
+    doc.fillColor('#FFFFFF').fontSize(24).text('Отчёт по продажам и стратегии роста', 44, 58, { width: 500 })
+    doc.fontSize(10).fillColor('#D9EAF7').text(`Файл: ${analysis.fileName} · ${new Date(analysis.createdAt).toLocaleString('ru-RU')}`, 44, 94)
 
-    doc.fontSize(15).text('Итоговые метрики')
-    doc.fontSize(11)
-    doc.text(`Продажи: ${money(analysis.totals.revenue)}`)
-    doc.text(`Заказы: ${analysis.totals.orders}`)
-    doc.text(`Реклама: ${money(analysis.totals.adSpend)}`)
-    doc.text(`ДДР: ${pct(analysis.totals.adSpend / Math.max(analysis.totals.revenue, 1))}`)
-    doc.text(`Маржа: ${money(analysis.totals.margin)}`)
-    doc.text(`Маржа %: ${pct(analysis.totals.margin / Math.max(analysis.totals.revenue, 1))}`)
+    doc.y = 154
+    doc.fillColor('#182033').fontSize(15).text('Итоговые метрики')
+    const cards = [
+      ['Продажи', money(analysis.totals.revenue)],
+      ['Маржа', `${money(analysis.totals.margin)} / ${pct(analysis.totals.margin / Math.max(analysis.totals.revenue, 1))}`],
+      ['ДДР', pct(analysis.totals.adSpend / Math.max(analysis.totals.revenue, 1))],
+      ['Остатки', String(analysis.totals.stock)],
+      ['Себестоимость+комиссии', money(analysis.totals.costTotal + analysis.totals.commissionTotal + analysis.totals.acquiringTotal + analysis.totals.logisticsTotal + analysis.totals.taxTotal)],
+      ['Типы отчётов', analysis.reportTypes.join(', ')],
+    ]
+    let x = 44
+    let y = doc.y + 14
+    cards.forEach(([label, value], index) => {
+      if (index === 3) {
+        x = 44
+        y += 72
+      }
+      doc.roundedRect(x, y, 158, 54, 10).fill('#FFF7EA')
+      doc.fillColor('#9A5B21').fontSize(8).text(label, x + 12, y + 10, { width: 134 })
+      doc.fillColor('#182033').fontSize(12).text(value, x + 12, y + 26, { width: 134 })
+      x += 172
+    })
 
-    doc.moveDown().fontSize(15).text('Стратегия')
-    doc.fontSize(12).text(analysis.strategy.headline)
+    doc.y = y + 88
+    doc.fillColor('#182033').fontSize(15).text('Стратегия месяца')
+    doc.moveDown(0.3).fontSize(12).fillColor('#38405D').text(analysis.strategy.headline, { lineGap: 3 })
 
-    doc.moveDown().fontSize(14).text('Риски')
-    analysis.strategy.risks.forEach((item) => doc.fontSize(11).text(`• ${item}`))
+    doc.moveDown().fillColor('#182033').fontSize(14).text('Риски')
+    analysis.strategy.risks.forEach((item) => doc.fontSize(10).fillColor('#414B63').text(`• ${item}`, { lineGap: 2 }))
 
-    doc.moveDown().fontSize(14).text('Действия на месяц')
-    analysis.strategy.actions.forEach((item, index) => doc.fontSize(11).text(`${index + 1}. ${item}`))
+    doc.moveDown().fillColor('#182033').fontSize(14).text('Действия на месяц')
+    analysis.strategy.actions.forEach((item, index) => doc.fontSize(10).fillColor('#414B63').text(`${index + 1}. ${item}`, { lineGap: 2 }))
 
-    doc.moveDown().fontSize(14).text('ТОП товаров')
+    doc.addPage()
+    doc.fillColor('#182033').fontSize(18).text('ТОП товаров')
     analysis.rows
       .slice()
       .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 10)
+      .slice(0, 15)
       .forEach((row, index) => {
-        doc.fontSize(10).text(`${index + 1}. ${row.name} — ${money(row.revenue)}, маржа ${money(row.margin)}`)
+        doc.moveDown(0.35)
+        doc.fontSize(10).fillColor('#182033').text(`${index + 1}. ${row.name}`)
+        doc.fontSize(9).fillColor('#6D7485').text(
+          `SKU ${row.sku} · продажи ${money(row.revenue)} · маржа ${money(row.margin)} · ДДР ${pct(row.adSpend / Math.max(row.revenue, 1))} · остаток ${row.stock}`,
+        )
       })
 
     doc.end()

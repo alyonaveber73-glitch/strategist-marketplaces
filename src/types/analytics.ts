@@ -1,3 +1,5 @@
+export type ReportType = 'sales' | 'ads' | 'stocks' | 'promotions' | 'unknown'
+
 export type ProductMetric = {
   sku: string
   name: string
@@ -9,6 +11,13 @@ export type ProductMetric = {
   impressions: number
   clicks: number
   carts: number
+  stock: number
+  promoRevenue: number
+  costTotal: number
+  commissionTotal: number
+  acquiringTotal: number
+  logisticsTotal: number
+  taxTotal: number
 }
 
 export type Totals = {
@@ -19,6 +28,13 @@ export type Totals = {
   impressions: number
   clicks: number
   carts: number
+  stock: number
+  promoRevenue: number
+  costTotal: number
+  commissionTotal: number
+  acquiringTotal: number
+  logisticsTotal: number
+  taxTotal: number
 }
 
 export type Strategy = {
@@ -34,6 +50,7 @@ export type Analysis = {
   projectId: string
   fileName: string
   createdAt: string
+  reportTypes: ReportType[]
   rows: ProductMetric[]
   totals: Totals
   strategy: Strategy
@@ -41,9 +58,31 @@ export type Analysis = {
 
 export type Project = {
   id: string
+  userId: string
   name: string
   marketplace: 'ozon' | 'wildberries' | 'mixed' | 'unknown'
   createdAt: string
   updatedAt: string
   analyses: Analysis[]
+}
+
+export type User = {
+  id: string
+  email: string
+  name: string
+  createdAt: string
+}
+
+export type UnitEconomics = {
+  id: string
+  userId: string
+  sku: string
+  name: string
+  cost: number
+  commission: number
+  acquiring: number
+  tax: number
+  logistics: number
+  createdAt: string
+  updatedAt: string
 }

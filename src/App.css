@@ -84,6 +84,7 @@ h2 {
   margin-top: 28px;
 }
 
+.plain-button,
 .upload-button {
   display: inline-flex;
   align-items: center;
@@ -95,6 +96,16 @@ h2 {
   font-weight: 800;
   cursor: pointer;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.plain-button {
+  border: 0;
+  border-radius: 999px;
+  padding: 13px 18px;
+  color: #182033;
+  background: #ffc887;
+  font-weight: 900;
+  cursor: pointer;
 }
 
 .upload-button:hover {
@@ -129,6 +140,29 @@ h2 {
 
 .server-message {
   margin-top: 12px;
+}
+
+.auth-card {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-top: 24px;
+}
+
+.auth-tabs {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+}
+
+.auth-tabs button {
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: #fff;
+  color: #182033;
+  cursor: pointer;
 }
 
 .strategy-card {
@@ -302,6 +336,29 @@ td strong {
   padding: 0;
   margin: 0;
   list-style: none;
+}
+
+.unit-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.unit-form input,
+.unit-form button {
+  min-width: 0;
+  border: 1px solid rgba(24, 32, 51, 0.1);
+  border-radius: 12px;
+  padding: 10px;
+}
+
+.unit-form button {
+  grid-column: 1 / -1;
+  color: #fff;
+  background: #182033;
+  font-weight: 900;
+  cursor: pointer;
 }
 
 .history-list button {
