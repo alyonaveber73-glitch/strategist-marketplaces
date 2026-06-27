@@ -5,194 +5,124 @@ import fs from 'node:fs/promises'
 import multer from 'multer'
 import { randomUUID } from 'node:crypto'
 import { analyzeBuffer, parseUnitEconomicsBuffer } from './analyzer.js'
-import { createCheckout } from './billing.js'
-import { createToken, loginUser, registerUser, requireAuth } from './auth.js'
-import { migrate } from './db.js'
-import { migratePostgres, postgresEnabled } from './pg.js'
 import { exportAnalysisPdf, exportAnalysisXlsx } from './exporters.js'
 import { buildAiStrategy } from './strategy.js'
-import { findAnalysis, getUnitEconomicsMap, listUnitEconomics, readProjects, updateAnalysisStrategy, upsertAnalysis, upsertUnitEconomics } from './storage.js'
-import { createInvite, listInvites } from './team.js'
-import type { Analysis, Plan, Project, Role } from './types.js'
-
-migrate()
-await migratePostgres()
+import type { Analysis, UnitEconomics } from './types.js'
 
 const app = express()
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } })
 const PORT = Number(process.env.PORT || 8787)
 
+const analyses = new Map<string, Analysis>()
+let unitEconomics: UnitEconomics[] = []
+
+function unitMap() {
+  return new Map(unitEconomics.map((item) => [item.sku, item]))
+}
+
 app.use(cors())
 app.use(express.json({ limit: '5mb' }))
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, ai: Boolean(process.env.OPENAI_API_KEY), storage: postgresEnabled ? 'postgres-ready' : 'sqlite' })
+  res.json({ ok: true, ai: Boolean(process.env.OPENAI_API_KEY), storage: 'in-memory' })
 })
 
-app.post('/api/auth/register', (req, res, next) => {
-  try {
-    const email = String(req.body.email || '').trim()
-    const password = String(req.body.password || '')
-    const name = String(req.body.name || email.split('@')[0] || 'User')
-    if (!email || password.length < 6) {
-      res.status(400).json({ error: 'EMAIL_AND_PASSWORD_REQUIRED' })
-      return
-    }
-    const user = registerUser(email, password, name)
-    res.json({ user, token: createToken(user) })
-  } catch (error) {
-    next(error)
-  }
+app.get('/api/unit-economics', (_req, res) => {
+  res.json({ items: unitEconomics })
 })
 
-app.post('/api/auth/login', (req, res) => {
-  const user = loginUser(String(req.body.email || ''), String(req.body.password || ''))
-  if (!user) {
-    res.status(401).json({ error: 'INVALID_CREDENTIALS' })
-    return
-  }
-  res.json({ user, token: createToken(user) })
-})
-
-app.get('/api/me', requireAuth, (req, res) => {
-  res.json({ user: req.user })
-})
-
-app.get('/api/projects', requireAuth, async (req, res) => {
-  res.json({ projects: readProjects(req.user!.id) })
-})
-
-app.get('/api/unit-economics', requireAuth, (req, res) => {
-  res.json({ items: listUnitEconomics(req.user!.id) })
-})
-
-app.post('/api/unit-economics', requireAuth, (req, res) => {
+app.post('/api/unit-economics', (req, res) => {
   const items = Array.isArray(req.body.items) ? req.body.items : [req.body]
-  res.json({ items: upsertUnitEconomics(req.user!.id, items) })
+  const map = new Map(unitEconomics.map((item) => [item.sku, item]))
+  for (const item of items) {
+    if (!item.sku) continue
+    map.set(String(item.sku), {
+      sku: String(item.sku),
+      name: String(item.name || ''),
+      cost: Number(item.cost || 0),
+      commission: Number(item.commission || 0),
+      acquiring: Number(item.acquiring || 0),
+      logistics: Number(item.logistics || 0),
+      tax: Number(item.tax || 0),
+    })
+  }
+  unitEconomics = [...map.values()]
+  res.json({ items: unitEconomics })
 })
 
-app.post('/api/unit-economics/import', requireAuth, upload.single('file'), (req, res) => {
+app.post('/api/unit-economics/import', upload.single('file'), (req, res) => {
   if (!req.file) {
     res.status(400).json({ error: 'FILE_REQUIRED' })
     return
   }
-  const items = parseUnitEconomicsBuffer(req.file.buffer, req.file.originalname)
-  res.json({ items: upsertUnitEconomics(req.user!.id, items), imported: items.length })
+  const imported = parseUnitEconomicsBuffer(req.file.buffer, req.file.originalname)
+  const map = new Map(unitEconomics.map((item) => [item.sku, item]))
+  imported.forEach((item) => map.set(item.sku, item))
+  unitEconomics = [...map.values()]
+  res.json({ items: unitEconomics, imported: imported.length })
 })
 
-app.get('/api/team/invites', requireAuth, (req, res) => {
-  res.json({ invites: listInvites(req.user!.id) })
-})
-
-app.post('/api/team/invites', requireAuth, (req, res) => {
-  const email = String(req.body.email || '').trim()
-  const role = String(req.body.role || 'viewer') as Role
-  if (!email) {
-    res.status(400).json({ error: 'EMAIL_REQUIRED' })
-    return
-  }
-  res.json({ invite: createInvite(req.user!.id, email, role) })
-})
-
-app.post('/api/billing/checkout', requireAuth, async (req, res, next) => {
-  try {
-    const plan = String(req.body.plan || 'pro') as Plan
-    res.json(await createCheckout(req.user!.id, plan))
-  } catch (error) {
-    next(error)
-  }
-})
-
-app.post('/api/analyze', requireAuth, upload.single('file'), async (req, res, next) => {
+app.post('/api/analyze', upload.single('file'), async (req, res, next) => {
   try {
     if (!req.file) {
       res.status(400).json({ error: 'FILE_REQUIRED' })
       return
     }
 
-    const projectId = String(req.body.projectId || randomUUID())
-    const now = new Date().toISOString()
-    const projectName = String(req.body.projectName || req.file.originalname.replace(/\.[^.]+$/, '') || 'Новый проект')
-    const marketplace = String(req.body.marketplace || 'unknown') as Project['marketplace']
-    const analyzed = analyzeBuffer(req.file.buffer, req.file.originalname, getUnitEconomicsMap(req.user!.id))
-
+    const analyzed = analyzeBuffer(req.file.buffer, req.file.originalname, unitMap())
     if (!analyzed.rows.length) {
       res.status(422).json({ error: 'NO_DATA_RECOGNIZED', sheetNames: analyzed.sheetNames, reportTypes: analyzed.reportTypes })
       return
     }
 
-    const strategy = await buildAiStrategy(analyzed.rows, analyzed.totals)
     const analysis: Analysis = {
       id: randomUUID(),
-      projectId,
       fileName: req.file.originalname,
-      createdAt: now,
+      createdAt: new Date().toISOString(),
       reportTypes: analyzed.reportTypes,
       rows: analyzed.rows,
       totals: analyzed.totals,
-      strategy,
+      strategy: await buildAiStrategy(analyzed.rows, analyzed.totals),
     }
-
-    const project: Project = {
-      id: projectId,
-      userId: req.user!.id,
-      name: projectName,
-      marketplace,
-      createdAt: now,
-      updatedAt: now,
-      analyses: [],
-    }
-
-    const savedProject = upsertAnalysis(project, analysis)
-    res.json({ project: savedProject, analysis })
+    analyses.set(analysis.id, analysis)
+    res.json({ analysis })
   } catch (error) {
     next(error)
   }
 })
 
-app.post('/api/strategy/:analysisId/regenerate', requireAuth, async (req, res, next) => {
-  try {
-    const found = findAnalysis(req.user!.id, req.params.analysisId)
-    if (!found) {
-      res.status(404).json({ error: 'ANALYSIS_NOT_FOUND' })
-      return
-    }
-    found.analysis.strategy = await buildAiStrategy(found.analysis.rows, found.analysis.totals)
-    updateAnalysisStrategy(found.analysis)
-    res.json({ analysis: found.analysis })
-  } catch (error) {
-    next(error)
-  }
+app.get('/api/analyses', (_req, res) => {
+  res.json({ analyses: [...analyses.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 20) })
 })
 
-app.get('/api/export/:analysisId.xlsx', requireAuth, async (req, res, next) => {
+app.get('/api/export/:analysisId.xlsx', async (req, res, next) => {
   try {
-    const found = findAnalysis(req.user!.id, req.params.analysisId)
-    if (!found) {
+    const analysis = analyses.get(req.params.analysisId)
+    if (!analysis) {
       res.status(404).json({ error: 'ANALYSIS_NOT_FOUND' })
       return
     }
-    const filePath = await exportAnalysisXlsx(found.analysis)
+    const filePath = await exportAnalysisXlsx(analysis)
     const file = await fs.readFile(filePath)
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    res.setHeader('Content-Disposition', `attachment; filename="analysis-${found.analysis.id}.xlsx"`)
+    res.setHeader('Content-Disposition', `attachment; filename="analysis-${analysis.id}.xlsx"`)
     res.send(file)
   } catch (error) {
     next(error)
   }
 })
 
-app.get('/api/export/:analysisId.pdf', requireAuth, async (req, res, next) => {
+app.get('/api/export/:analysisId.pdf', async (req, res, next) => {
   try {
-    const found = findAnalysis(req.user!.id, req.params.analysisId)
-    if (!found) {
+    const analysis = analyses.get(req.params.analysisId)
+    if (!analysis) {
       res.status(404).json({ error: 'ANALYSIS_NOT_FOUND' })
       return
     }
-    const filePath = await exportAnalysisPdf(found.analysis)
+    const filePath = await exportAnalysisPdf(analysis)
     const file = await fs.readFile(filePath)
     res.setHeader('Content-Type', 'application/pdf')
-    res.setHeader('Content-Disposition', `attachment; filename="analysis-${found.analysis.id}.pdf"`)
+    res.setHeader('Content-Disposition', `attachment; filename="analysis-${analysis.id}.pdf"`)
     res.send(file)
   } catch (error) {
     next(error)

@@ -14,4 +14,4 @@ COPY --from=build /app/dist ./dist
 COPY --from=build /app/server ./server
 COPY --from=build /app/.env.example ./.env.example
 EXPOSE 8787
-CMD ["node", "--import", "tsx", "server/index.ts"]
+CMD ["npm", "run", "dev:server"]

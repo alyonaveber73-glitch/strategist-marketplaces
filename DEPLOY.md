@@ -1,41 +1,26 @@
 # Deploy
 
-## Local production-like run
+Простая версия без оплаты и базы данных.
+
+## Local run
 
 ```bash
 cp .env.example .env
 npm install
-npm run build
 npm run dev:server
+npm run dev
 ```
 
-## Docker Compose with PostgreSQL
+## Docker
 
 ```bash
-docker compose up --build
+docker build -t marketplace-strategist .
+docker run -p 8787:8787 marketplace-strategist
 ```
 
-`DATABASE_URL` enables PostgreSQL migrations. SQLite remains the local fallback.
+## Важно
 
-## Billing
-
-Set Stripe variables before enabling real payments:
-
-```bash
-STRIPE_SECRET_KEY=sk_live_...
-STRIPE_PRO_PRICE_ID=price_...
-STRIPE_TEAM_PRICE_ID=price_...
-BILLING_SUCCESS_URL=https://your-domain.com?billing=success
-BILLING_CANCEL_URL=https://your-domain.com?billing=cancel
-```
-
-Without `STRIPE_SECRET_KEY`, `/api/billing/checkout` returns demo mode and does not charge anyone.
-
-## Minimum production checklist
-
-- Strong `JWT_SECRET`
-- HTTPS domain
-- PostgreSQL backup
-- File size/rate limits
-- Private env vars in hosting dashboard
-- Stripe webhook endpoint before real billing
+- Данные анализов хранятся только в памяти запущенного сервера.
+- После перезапуска история очищается.
+- Для продакшена позже можно вернуть PostgreSQL, но сейчас MVP максимально простой.
+- Оплаты, тарифов и личного кабинета нет намеренно.

@@ -20,22 +20,7 @@ export type ProductMetric = {
   taxTotal: number
 }
 
-export type Totals = {
-  revenue: number
-  orders: number
-  adSpend: number
-  margin: number
-  impressions: number
-  clicks: number
-  carts: number
-  stock: number
-  promoRevenue: number
-  costTotal: number
-  commissionTotal: number
-  acquiringTotal: number
-  logisticsTotal: number
-  taxTotal: number
-}
+export type Totals = Omit<ProductMetric, 'sku' | 'name' | 'category'>
 
 export type Strategy = {
   headline: string
@@ -47,7 +32,6 @@ export type Strategy = {
 
 export type Analysis = {
   id: string
-  projectId: string
   fileName: string
   createdAt: string
   reportTypes: ReportType[]
@@ -56,48 +40,12 @@ export type Analysis = {
   strategy: Strategy
 }
 
-export type Project = {
-  id: string
-  userId: string
-  name: string
-  marketplace: 'ozon' | 'wildberries' | 'mixed' | 'unknown'
-  createdAt: string
-  updatedAt: string
-  analyses: Analysis[]
-}
-
-export type Role = 'owner' | 'admin' | 'analyst' | 'viewer'
-export type Plan = 'free' | 'pro' | 'team'
-
-export type User = {
-  id: string
-  email: string
-  name: string
-  createdAt: string
-  role?: Role
-  plan?: Plan
-}
-
-export type Invite = {
-  id: string
-  userId: string
-  email: string
-  role: Role
-  token: string
-  status: 'pending' | 'accepted' | 'expired'
-  createdAt: string
-}
-
 export type UnitEconomics = {
-  id: string
-  userId: string
   sku: string
-  name: string
+  name?: string
   cost: number
   commission: number
   acquiring: number
   tax: number
   logistics: number
-  createdAt: string
-  updatedAt: string
 }
