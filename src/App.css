@@ -142,6 +142,23 @@ h2 {
   margin-top: 12px;
 }
 
+.upload-hint {
+  display: inline-grid;
+  gap: 4px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(154, 91, 33, 0.16);
+  border-radius: 18px;
+  color: #4c566f;
+  background: rgba(255, 248, 236, 0.76);
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.upload-hint strong {
+  color: #9a5b21;
+}
+
 .auth-card {
   display: flex;
   flex-wrap: wrap;

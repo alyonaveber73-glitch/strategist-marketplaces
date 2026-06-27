@@ -5,6 +5,7 @@ import type { ProductMetric, ReportType, Totals, UnitEconomics } from './types.j
 type RawRow = Record<string, string | number | null | undefined>
 
 type ParsedWorkbookRow = { sheetName: string; reportType: ReportType; row: RawRow }
+type AnalysisFile = { buffer: Buffer; fileName: string }
 
 type UnitMap = Map<string, UnitEconomics>
 
@@ -168,7 +169,7 @@ function parseRows(parsedRows: ParsedWorkbookRow[], unitMap: UnitMap): ProductMe
   return [...grouped.values()].filter((row) => row.revenue || row.orders || row.adSpend || row.impressions || row.stock || row.promoRevenue)
 }
 
-export function analyzeBuffer(buffer: Buffer, fileName: string, unitMap: UnitMap = new Map()) {
+function parseWorkbookRows(buffer: Buffer, fileName: string) {
   const lower = fileName.toLowerCase()
   const workbook = lower.endsWith('.csv') ? XLSX.read(buffer.toString('utf8'), { type: 'string' }) : XLSX.read(buffer, { type: 'buffer' })
 
@@ -181,8 +182,21 @@ export function analyzeBuffer(buffer: Buffer, fileName: string, unitMap: UnitMap
     return rows.map((row) => ({ sheetName, reportType, row }))
   })
 
+  return { rawRows, sheetNames: workbook.SheetNames, reportTypes: [...reportTypes] }
+}
+
+export function analyzeFiles(files: AnalysisFile[], unitMap: UnitMap = new Map()) {
+  const parsed = files.map((file) => parseWorkbookRows(file.buffer, file.fileName))
+  const rawRows = parsed.flatMap((item) => item.rawRows)
+  const reportTypes = [...new Set(parsed.flatMap((item) => item.reportTypes))]
+  const sheetNames = parsed.flatMap((item, index) => item.sheetNames.map((sheetName) => `${files[index].fileName}: ${sheetName}`))
+
   const rows = parseRows(rawRows, unitMap)
-  return { rows, totals: totals(rows), sheetNames: workbook.SheetNames, reportTypes: [...reportTypes] }
+  return { rows, totals: totals(rows), sheetNames, reportTypes }
+}
+
+export function analyzeBuffer(buffer: Buffer, fileName: string, unitMap: UnitMap = new Map()) {
+  return analyzeFiles([{ buffer, fileName }], unitMap)
 }
 
 export function parseUnitEconomicsBuffer(buffer: Buffer, fileName: string) {

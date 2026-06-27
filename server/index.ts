@@ -4,7 +4,7 @@ import express from 'express'
 import fs from 'node:fs/promises'
 import multer from 'multer'
 import { randomUUID } from 'node:crypto'
-import { analyzeBuffer, parseUnitEconomicsBuffer } from './analyzer.js'
+import { analyzeFiles, parseUnitEconomicsBuffer } from './analyzer.js'
 import { exportAnalysisPdf, exportAnalysisXlsx } from './exporters.js'
 import { buildAiStrategy } from './strategy.js'
 import type { Analysis, UnitEconomics } from './types.js'
@@ -62,14 +62,18 @@ app.post('/api/unit-economics/import', upload.single('file'), (req, res) => {
   res.json({ items: unitEconomics, imported: imported.length })
 })
 
-app.post('/api/analyze', upload.single('file'), async (req, res, next) => {
+app.post('/api/analyze', upload.array('files', 8), async (req, res, next) => {
   try {
-    if (!req.file) {
+    const files = req.files as Express.Multer.File[] | undefined
+    if (!files?.length) {
       res.status(400).json({ error: 'FILE_REQUIRED' })
       return
     }
 
-    const analyzed = analyzeBuffer(req.file.buffer, req.file.originalname, unitMap())
+    const analyzed = analyzeFiles(
+      files.map((file) => ({ buffer: file.buffer, fileName: file.originalname })),
+      unitMap(),
+    )
     if (!analyzed.rows.length) {
       res.status(422).json({ error: 'NO_DATA_RECOGNIZED', sheetNames: analyzed.sheetNames, reportTypes: analyzed.reportTypes })
       return
@@ -77,7 +81,7 @@ app.post('/api/analyze', upload.single('file'), async (req, res, next) => {
 
     const analysis: Analysis = {
       id: randomUUID(),
-      fileName: req.file.originalname,
+      fileName: files.length === 1 ? files[0].originalname : `${files.length} файлов: ${files.map((file) => file.originalname).join(', ')}`,
       createdAt: new Date().toISOString(),
       reportTypes: analyzed.reportTypes,
       rows: analyzed.rows,

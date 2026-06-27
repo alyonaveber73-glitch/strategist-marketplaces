@@ -35,9 +35,9 @@ export async function importUnitEconomics(file: File) {
   return (await response.json()) as { items: UnitEconomics[]; imported: number }
 }
 
-export async function uploadAnalysis(file: File) {
+export async function uploadAnalysis(files: File[]) {
   const form = new FormData()
-  form.append('file', file)
+  files.forEach((file) => form.append('files', file))
   const response = await fetch(`${API_BASE}/api/analyze`, { method: 'POST', body: form })
   if (!response.ok) throw new Error('Не удалось обработать файл')
   return (await response.json()) as { analysis: Analysis }
