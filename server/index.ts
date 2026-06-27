@@ -6,6 +6,7 @@ import multer from 'multer'
 import { randomUUID } from 'node:crypto'
 import { analyzeFiles, parseUnitEconomicsBuffer } from './analyzer.js'
 import { exportAnalysisPdf, exportAnalysisXlsx } from './exporters.js'
+import { buildDataQuality } from './quality.js'
 import { buildAiStrategy } from './strategy.js'
 import type { Analysis, UnitEconomics } from './types.js'
 
@@ -87,6 +88,7 @@ app.post('/api/analyze', upload.array('files', 8), async (req, res, next) => {
       rows: analyzed.rows,
       totals: analyzed.totals,
       strategy: await buildAiStrategy(analyzed.rows, analyzed.totals),
+      quality: buildDataQuality(analyzed.rows, analyzed.totals, analyzed.reportTypes),
     }
     analyses.set(analysis.id, analysis)
     res.json({ analysis })

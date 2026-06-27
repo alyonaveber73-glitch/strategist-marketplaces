@@ -30,6 +30,14 @@ export type Strategy = {
   source: 'rules' | 'ai'
 }
 
+export type DataQuality = {
+  score: number
+  recognizedReports: ReportType[]
+  missingReports: ReportType[]
+  warnings: string[]
+  suggestions: string[]
+}
+
 export type Analysis = {
   id: string
   fileName: string
@@ -38,6 +46,7 @@ export type Analysis = {
   rows: ProductMetric[]
   totals: Totals
   strategy: Strategy
+  quality: DataQuality
 }
 
 export type UnitEconomics = {
