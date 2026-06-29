@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
-import { exportUrl, fetchAnalyses, fetchUnitEconomics, importUnitEconomics, saveUnitEconomics, uploadAnalysis } from './lib/api'
+import { exportUrl, fetchAnalyses, fetchUnitEconomics, importUnitEconomics, saveUnitEconomics, uploadAnalysis, uploadImageAnalysis } from './lib/api'
 import type { Analysis, ProductMetric, ReportType, Strategy, Totals, UnitEconomics } from './types/analytics'
 
 const demoRows: ProductMetric[] = [
@@ -102,19 +102,30 @@ export default function App() {
   async function onFileUpload(fileList: FileList | null) {
     const files = Array.from(fileList ?? [])
     if (!files.length) return
-    const allowedExtensions = ['.csv', '.xlsx', '.xls', '.ods']
-    const unsupportedFiles = files.filter((file) => !allowedExtensions.some((extension) => file.name.toLowerCase().endsWith(extension)))
+    const spreadsheetExtensions = ['.csv', '.xlsx', '.xls', '.ods']
+    const imageExtensions = ['.png', '.jpg', '.jpeg', '.webp']
+    const spreadsheetFiles = files.filter((file) => spreadsheetExtensions.some((extension) => file.name.toLowerCase().endsWith(extension)))
+    const imageFiles = files.filter((file) => imageExtensions.some((extension) => file.name.toLowerCase().endsWith(extension)))
+    const unsupportedFiles = files.filter((file) => !spreadsheetFiles.includes(file) && !imageFiles.includes(file))
     if (unsupportedFiles.length) {
-      setServerMessage(`Можно загрузить только таблицы CSV, XLSX, XLS или ODS. Уберите файл: ${unsupportedFiles.map((file) => file.name).join(', ')}`)
+      setServerMessage(`Можно загрузить таблицы CSV, XLSX, XLS, ODS или изображения PNG, JPG, WEBP. Уберите файл: ${unsupportedFiles.map((file) => file.name).join(', ')}`)
+      return
+    }
+    if (spreadsheetFiles.length && imageFiles.length) {
+      setServerMessage('Загрузите отдельно: либо таблицы для расчётов, либо одно изображение для AI-разбора.')
+      return
+    }
+    if (imageFiles.length > 1) {
+      setServerMessage('Для AI-разбора загрузите одно изображение за раз.')
       return
     }
     setLoading(true)
-    setServerMessage(files.length === 1 ? 'Загружаю файл и нормализую отчёт…' : `Загружаю ${files.length} файлов и собираю единый анализ…`)
+    setServerMessage(imageFiles.length ? 'Отправляю изображение на AI-анализ…' : files.length === 1 ? 'Загружаю файл и нормализую отчёт…' : `Загружаю ${files.length} файлов и собираю единый анализ…`)
     try {
-      const result = await uploadAnalysis(files)
+      const result = imageFiles.length ? await uploadImageAnalysis(imageFiles[0]) : await uploadAnalysis(files)
       setAnalysis(result.analysis)
       await refresh()
-      setServerMessage(`Готово: ${files.length} файл(ов), типы отчётов — ${reportTypesLabel(result.analysis.reportTypes)}`)
+      setServerMessage(result.analysis.rows.length ? `Готово: ${files.length} файл(ов), типы отчётов — ${reportTypesLabel(result.analysis.reportTypes)}` : 'Готово: изображение проанализировано AI')
       window.setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120)
     } catch (error) { setServerMessage(error instanceof Error ? error.message : 'Не получилось обработать файл. Проверьте backend и формат файла.') }
     finally { setLoading(false) }
@@ -136,7 +147,7 @@ export default function App() {
   }
 
   return <main className="page-shell">
-    <section className="hero-panel"><div><p className="eyebrow">AI-платформа для продавцов маркетплейсов</p><h1>Стратег для маркетплейсов</h1><p className="hero-text">Загружаете один или несколько отчётов Ozon/WB — система объединяет продажи, рекламу, остатки и акции, считает маржу и готовит стратегию.</p><div className="hero-actions"><label className="upload-button">{loading ? 'Анализирую…' : 'Загрузить отчёты'}<input type="file" multiple accept=".csv,.xlsx,.xls,.ods" disabled={loading} onChange={(event) => onFileUpload(event.target.files)} /></label><span className="file-name">Источник: {analysis.fileName}</span></div><p className="server-message">{serverMessage}</p><div className="upload-hint"><strong>Можно загрузить пачкой:</strong><span>продажи + реклама + остатки + акции. Файлы объединятся в один отчёт по SKU.</span></div></div><aside className="strategy-card"><span>Стратегия месяца · {strategy.source === 'ai' ? 'AI' : 'rules'}</span><strong>{strategy.headline}</strong>{analysis.id && <div className="export-actions"><a href={exportUrl(analysis.id, 'xlsx')}>XLSX</a><a href={exportUrl(analysis.id, 'pdf')}>PDF</a></div>}</aside></section>
+    <section className="hero-panel"><div><p className="eyebrow">AI-платформа для продавцов маркетплейсов</p><h1>Стратег для маркетплейсов</h1><p className="hero-text">Загружаете один или несколько отчётов Ozon/WB — система объединяет продажи, рекламу, остатки и акции, считает маржу и готовит стратегию.</p><div className="hero-actions"><label className="upload-button">{loading ? 'Анализирую…' : 'Загрузить отчёты'}<input type="file" multiple accept=".csv,.xlsx,.xls,.ods,.png,.jpg,.jpeg,.webp" disabled={loading} onChange={(event) => onFileUpload(event.target.files)} /></label><span className="file-name">Источник: {analysis.fileName}</span></div><p className="server-message">{serverMessage}</p><div className="upload-hint"><strong>Можно загрузить пачкой:</strong><span>продажи + реклама + остатки + акции. Файлы объединятся в один отчёт по SKU.</span></div></div><aside className="strategy-card"><span>Стратегия месяца · {strategy.source === 'ai' ? 'AI' : 'rules'}</span><strong>{strategy.headline}</strong>{analysis.id && <div className="export-actions"><a href={exportUrl(analysis.id, 'xlsx')}>XLSX</a><a href={exportUrl(analysis.id, 'pdf')}>PDF</a></div>}</aside></section>
     {hasUploadedAnalysis ? <>
       <section ref={resultsRef} className="metrics-grid"><article><span>Продажи</span><strong>{money(total.revenue)}</strong></article><article><span>Маржа</span><strong>{money(total.margin)}</strong><small>{percent(marginRate)}</small></article><article><span>ДДР</span><strong>{percent(ddr)}</strong></article><article><span>Остатки</span><strong>{formatUnits(total.stock)}</strong></article><article><span>Себестоимость+комиссии</span><strong>{money(total.costTotal + total.commissionTotal + total.acquiringTotal + total.logisticsTotal + total.taxTotal)}</strong></article><article><span>Типы отчётов</span><strong>{reportTypesLabel(analysis.reportTypes)}</strong></article><article><span>Показ → клик</span><strong>{percent(ctr)}</strong></article><article><span>Клик → корзина</span><strong>{percent(cartConversion)}</strong></article><article><span>Корзина → заказ</span><strong>{percent(orderConversion)}</strong></article></section>
       <section className="panel metric-analysis-panel"><div className="panel-header"><h2>Анализ метрик</h2><p>Автоматические выводы по карточкам выше: что уже видно и каких данных не хватает.</p></div><ul className="insight-list">{metricInsights.map((insight) => <li key={insight}>{insight}</li>)}</ul></section>

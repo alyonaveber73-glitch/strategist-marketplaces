@@ -78,3 +78,61 @@ export async function buildAiStrategy(rows: ProductMetric[], totals: Totals): Pr
     return fallback
   }
 }
+
+
+export async function buildImageAiStrategy(image: { buffer: Buffer; fileName: string; mimeType: string }): Promise<Pick<Strategy, 'headline' | 'risks' | 'actions' | 'source'>> {
+  const apiKey = process.env.OPENAI_API_KEY
+  if (!apiKey) {
+    return {
+      source: 'rules',
+      headline: 'Для анализа изображения нужен OPENAI_API_KEY в .env.',
+      risks: ['Изображение загружено, но AI-ключ не найден — скриншот нельзя распознать автоматически.'],
+      actions: ['Добавьте OPENAI_API_KEY в .env, перезапустите backend и загрузите изображение снова.'],
+    }
+  }
+
+  try {
+    const base64 = image.buffer.toString('base64')
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: process.env.OPENAI_VISION_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Ты эксперт по аналитике Ozon/Wildberries. Проанализируй скриншот отчёта или кабинета. Верни только JSON: headline string, risks string[], actions string[]. Пиши по-русски, конкретно: что видно, какие метрики важны, что не так, что сделать дальше.',
+          },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: `Проанализируй изображение ${image.fileName}. Если это таблица/дашборд, извлеки видимые показатели и дай выводы.` },
+              { type: 'image_url', image_url: { url: `data:${image.mimeType};base64,${base64}` } },
+            ],
+          },
+        ],
+        temperature: 0.25,
+      }),
+    })
+
+    if (!response.ok) throw new Error(`OpenAI error ${response.status}`)
+    const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> }
+    const content = data.choices?.[0]?.message?.content ?? ''
+    const jsonStart = content.indexOf('{')
+    const jsonEnd = content.lastIndexOf('}')
+    if (jsonStart < 0 || jsonEnd < 0) throw new Error('No JSON in image analysis response')
+    const parsed = JSON.parse(content.slice(jsonStart, jsonEnd + 1)) as Pick<Strategy, 'headline' | 'risks' | 'actions'>
+    return { ...parsed, source: 'ai' }
+  } catch (error) {
+    return {
+      source: 'rules',
+      headline: 'Не получилось автоматически проанализировать изображение.',
+      risks: [error instanceof Error ? error.message : 'Неизвестная ошибка анализа изображения.'],
+      actions: ['Проверьте OPENAI_API_KEY, модель с поддержкой изображений и попробуйте загрузить скриншот снова.'],
+    }
+  }
+}

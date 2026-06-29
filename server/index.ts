@@ -7,13 +7,14 @@ import { randomUUID } from 'node:crypto'
 import { analyzeFiles, parseUnitEconomicsBuffer } from './analyzer.js'
 import { exportAnalysisPdf, exportAnalysisXlsx } from './exporters.js'
 import { buildDataQuality } from './quality.js'
-import { buildAiStrategy } from './strategy.js'
+import { buildAiStrategy, buildImageAiStrategy } from './strategy.js'
 import type { Analysis, UnitEconomics } from './types.js'
 
 const app = express()
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } })
 const PORT = Number(process.env.PORT || 8787)
 const SUPPORTED_EXTENSIONS = ['.csv', '.xlsx', '.xls', '.ods']
+const SUPPORTED_IMAGE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp']
 
 const analyses = new Map<string, Analysis>()
 let unitEconomics: UnitEconomics[] = []
@@ -24,6 +25,10 @@ function unitMap() {
 
 function isSupportedSpreadsheet(fileName: string) {
   return SUPPORTED_EXTENSIONS.some((extension) => fileName.toLowerCase().endsWith(extension))
+}
+
+function isSupportedImage(file: Express.Multer.File) {
+  return SUPPORTED_IMAGE_MIME_TYPES.includes(file.mimetype)
 }
 
 function decodeUploadFileName(fileName: string) {
@@ -76,6 +81,59 @@ app.post('/api/unit-economics/import', upload.single('file'), (req, res) => {
   imported.forEach((item) => map.set(item.sku, item))
   unitEconomics = [...map.values()]
   res.json({ items: unitEconomics, imported: imported.length })
+})
+
+
+app.post('/api/analyze-image', upload.single('file'), async (req, res, next) => {
+  try {
+    if (!req.file) {
+      res.status(400).json({ error: 'FILE_REQUIRED', message: 'Загрузите PNG, JPG или WEBP изображение.' })
+      return
+    }
+
+    const fileName = decodeUploadFileName(req.file.originalname)
+    if (!isSupportedImage(req.file)) {
+      res.status(400).json({ error: 'UNSUPPORTED_FILE_TYPE', message: 'Для анализа изображения загрузите PNG, JPG или WEBP.' })
+      return
+    }
+
+    const imageStrategy = await buildImageAiStrategy({ buffer: req.file.buffer, fileName, mimeType: req.file.mimetype })
+    const analysis: Analysis = {
+      id: randomUUID(),
+      fileName,
+      createdAt: new Date().toISOString(),
+      reportTypes: ['unknown'],
+      rows: [],
+      totals: {
+        revenue: 0,
+        orders: 0,
+        adSpend: 0,
+        margin: 0,
+        impressions: 0,
+        clicks: 0,
+        carts: 0,
+        stock: 0,
+        promoRevenue: 0,
+        costTotal: 0,
+        commissionTotal: 0,
+        acquiringTotal: 0,
+        logisticsTotal: 0,
+        taxTotal: 0,
+      },
+      strategy: { ...imageStrategy, focusProducts: [] },
+      quality: {
+        score: imageStrategy.source === 'ai' ? 70 : 20,
+        recognizedReports: ['unknown'],
+        missingReports: ['sales', 'ads', 'stocks'],
+        warnings: ['Данные получены со скриншота: точность зависит от качества изображения. Для расчётов лучше загрузить исходные таблицы.'],
+        suggestions: ['Для точных продаж, маржи и ДДР загрузите CSV/XLSX/XLS/ODS отчёты.', 'Скриншоты используйте для быстрого визуального разбора и пояснений.'],
+      },
+    }
+    analyses.set(analysis.id, analysis)
+    res.json({ analysis })
+  } catch (error) {
+    next(error)
+  }
 })
 
 app.post('/api/analyze', upload.array('files', 8), async (req, res, next) => {

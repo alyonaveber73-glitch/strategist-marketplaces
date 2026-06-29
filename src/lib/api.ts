@@ -35,6 +35,18 @@ export async function importUnitEconomics(file: File) {
   return (await response.json()) as { items: UnitEconomics[]; imported: number }
 }
 
+
+export async function uploadImageAnalysis(file: File) {
+  const form = new FormData()
+  form.append('file', file)
+  const response = await fetch(`${API_BASE}/api/analyze-image`, { method: 'POST', body: form })
+  if (!response.ok) {
+    const data = await response.json().catch(() => null) as { message?: string } | null
+    throw new Error(data?.message || 'Не удалось проанализировать изображение')
+  }
+  return (await response.json()) as { analysis: Analysis }
+}
+
 export async function uploadAnalysis(files: File[]) {
   const form = new FormData()
   files.forEach((file) => form.append('files', file))
