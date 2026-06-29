@@ -233,8 +233,19 @@ h2 {
   margin: 22px 0;
 }
 
-.metric-analysis-panel {
+.metric-analysis-panel,
+.empty-state-panel {
   margin-bottom: 22px;
+}
+
+.empty-state-panel {
+  color: #4c566f;
+  background: linear-gradient(135deg, #ffffff, #fff7ea);
+}
+
+.empty-state-panel p {
+  margin-bottom: 0;
+  line-height: 1.5;
 }
 
 .metrics-grid article {
