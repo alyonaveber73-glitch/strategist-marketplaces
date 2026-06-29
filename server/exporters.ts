@@ -17,6 +17,10 @@ function pct(value: number) {
   return `${(value * 100).toFixed(1)}%`
 }
 
+function units(value: number) {
+  return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(value)
+}
+
 async function ensureExportDir() {
   await fsPromises.mkdir(EXPORT_DIR, { recursive: true })
 }
@@ -32,22 +36,22 @@ export async function exportAnalysisXlsx(analysis: Analysis) {
     XLSX.utils.aoa_to_sheet([
       ['Метрика', 'Значение'],
       ['Типы отчётов', analysis.reportTypes.join(', ')],
-      ['Продажи', totals.revenue],
-      ['Заказы', totals.orders],
-      ['Реклама', totals.adSpend],
-      ['ДДР', totals.adSpend / Math.max(totals.revenue, 1)],
-      ['Себестоимость', totals.costTotal],
-      ['Комиссия', totals.commissionTotal],
-      ['Эквайринг', totals.acquiringTotal],
-      ['Логистика', totals.logisticsTotal],
-      ['Налоги', totals.taxTotal],
-      ['Маржа', totals.margin],
-      ['Маржа %', totals.margin / Math.max(totals.revenue, 1)],
-      ['Остатки', totals.stock],
-      ['Акции/промо', totals.promoRevenue],
-      ['Показы', totals.impressions],
-      ['Клики', totals.clicks],
-      ['Корзины', totals.carts],
+      ['Продажи', Math.round(totals.revenue)],
+      ['Заказы', Math.round(totals.orders)],
+      ['Реклама', Math.round(totals.adSpend)],
+      ['ДДР', Number((totals.adSpend / Math.max(totals.revenue, 1)).toFixed(4))],
+      ['Себестоимость', Math.round(totals.costTotal)],
+      ['Комиссия', Math.round(totals.commissionTotal)],
+      ['Эквайринг', Math.round(totals.acquiringTotal)],
+      ['Логистика', Math.round(totals.logisticsTotal)],
+      ['Налоги', Math.round(totals.taxTotal)],
+      ['Маржа', Math.round(totals.margin)],
+      ['Маржа %', Number((totals.margin / Math.max(totals.revenue, 1)).toFixed(4))],
+      ['Остатки', Math.round(totals.stock)],
+      ['Акции/промо', Math.round(totals.promoRevenue)],
+      ['Показы', Math.round(totals.impressions)],
+      ['Клики', Math.round(totals.clicks)],
+      ['Корзины', Math.round(totals.carts)],
     ]),
     'Итог',
   )
@@ -59,22 +63,22 @@ export async function exportAnalysisXlsx(analysis: Analysis) {
         SKU: row.sku,
         Товар: row.name,
         Категория: row.category,
-        Продажи: row.revenue,
-        Заказы: row.orders,
-        Реклама: row.adSpend,
-        ДДР: row.adSpend / Math.max(row.revenue, 1),
-        Себестоимость: row.costTotal,
-        Комиссия: row.commissionTotal,
-        Эквайринг: row.acquiringTotal,
-        Логистика: row.logisticsTotal,
-        Налоги: row.taxTotal,
-        Маржа: row.margin,
-        'Маржа %': row.margin / Math.max(row.revenue, 1),
-        Остатки: row.stock,
-        Акции: row.promoRevenue,
-        Показы: row.impressions,
-        Клики: row.clicks,
-        Корзины: row.carts,
+        Продажи: Math.round(row.revenue),
+        Заказы: Math.round(row.orders),
+        Реклама: Math.round(row.adSpend),
+        ДДР: Number((row.adSpend / Math.max(row.revenue, 1)).toFixed(4)),
+        Себестоимость: Math.round(row.costTotal),
+        Комиссия: Math.round(row.commissionTotal),
+        Эквайринг: Math.round(row.acquiringTotal),
+        Логистика: Math.round(row.logisticsTotal),
+        Налоги: Math.round(row.taxTotal),
+        Маржа: Math.round(row.margin),
+        'Маржа %': Number((row.margin / Math.max(row.revenue, 1)).toFixed(4)),
+        Остатки: Math.round(row.stock),
+        Акции: Math.round(row.promoRevenue),
+        Показы: Math.round(row.impressions),
+        Клики: Math.round(row.clicks),
+        Корзины: Math.round(row.carts),
       })),
     ),
     'Товары',
@@ -123,7 +127,7 @@ export async function exportAnalysisPdf(analysis: Analysis) {
       ['Продажи', money(analysis.totals.revenue)],
       ['Маржа', `${money(analysis.totals.margin)} / ${pct(analysis.totals.margin / Math.max(analysis.totals.revenue, 1))}`],
       ['ДДР', pct(analysis.totals.adSpend / Math.max(analysis.totals.revenue, 1))],
-      ['Остатки', String(analysis.totals.stock)],
+      ['Остатки', units(analysis.totals.stock)],
       ['Себестоимость+комиссии', money(analysis.totals.costTotal + analysis.totals.commissionTotal + analysis.totals.acquiringTotal + analysis.totals.logisticsTotal + analysis.totals.taxTotal)],
       ['Типы отчётов', analysis.reportTypes.join(', ')],
     ]
@@ -160,7 +164,7 @@ export async function exportAnalysisPdf(analysis: Analysis) {
         doc.moveDown(0.35)
         doc.font('NotoSansBold').fontSize(10).fillColor('#182033').text(`${index + 1}. ${row.name}`)
         doc.font('NotoSans').fontSize(9).fillColor('#6D7485').text(
-          `SKU ${row.sku} · продажи ${money(row.revenue)} · маржа ${money(row.margin)} · ДДР ${pct(row.adSpend / Math.max(row.revenue, 1))} · остаток ${row.stock}`,
+          `SKU ${row.sku} · продажи ${money(row.revenue)} · маржа ${money(row.margin)} · ДДР ${pct(row.adSpend / Math.max(row.revenue, 1))} · остаток ${units(row.stock)}`,
         )
       })
 
