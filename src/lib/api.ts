@@ -39,7 +39,10 @@ export async function uploadAnalysis(files: File[]) {
   const form = new FormData()
   files.forEach((file) => form.append('files', file))
   const response = await fetch(`${API_BASE}/api/analyze`, { method: 'POST', body: form })
-  if (!response.ok) throw new Error('Не удалось обработать файл')
+  if (!response.ok) {
+    const data = await response.json().catch(() => null) as { message?: string } | null
+    throw new Error(data?.message || 'Не удалось обработать файл')
+  }
   return (await response.json()) as { analysis: Analysis }
 }
 

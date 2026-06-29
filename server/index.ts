@@ -13,12 +13,17 @@ import type { Analysis, UnitEconomics } from './types.js'
 const app = express()
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } })
 const PORT = Number(process.env.PORT || 8787)
+const SUPPORTED_EXTENSIONS = ['.csv', '.xlsx', '.xls', '.ods']
 
 const analyses = new Map<string, Analysis>()
 let unitEconomics: UnitEconomics[] = []
 
 function unitMap() {
   return new Map(unitEconomics.map((item) => [item.sku, item]))
+}
+
+function isSupportedSpreadsheet(fileName: string) {
+  return SUPPORTED_EXTENSIONS.some((extension) => fileName.toLowerCase().endsWith(extension))
 }
 
 function decodeUploadFileName(fileName: string) {
@@ -81,8 +86,18 @@ app.post('/api/analyze', upload.array('files', 8), async (req, res, next) => {
       return
     }
 
+    const normalizedFiles = files.map((file) => ({ ...file, originalname: decodeUploadFileName(file.originalname) }))
+    const unsupportedFiles = normalizedFiles.filter((file) => !isSupportedSpreadsheet(file.originalname))
+    if (unsupportedFiles.length) {
+      res.status(400).json({
+        error: 'UNSUPPORTED_FILE_TYPE',
+        message: `Загрузите таблицы CSV, XLSX, XLS или ODS. Не поддерживаются: ${unsupportedFiles.map((file) => file.originalname).join(', ')}`,
+      })
+      return
+    }
+
     const analyzed = analyzeFiles(
-      files.map((file) => ({ buffer: file.buffer, fileName: decodeUploadFileName(file.originalname) })),
+      normalizedFiles.map((file) => ({ buffer: file.buffer, fileName: file.originalname })),
       unitMap(),
     )
     if (!analyzed.rows.length) {
@@ -93,9 +108,9 @@ app.post('/api/analyze', upload.array('files', 8), async (req, res, next) => {
     const analysis: Analysis = {
       id: randomUUID(),
       fileName:
-        files.length === 1
-          ? decodeUploadFileName(files[0].originalname)
-          : `${files.length} файлов: ${files.map((file) => decodeUploadFileName(file.originalname)).join(', ')}`,
+        normalizedFiles.length === 1
+          ? normalizedFiles[0].originalname
+          : `${normalizedFiles.length} файлов: ${normalizedFiles.map((file) => file.originalname).join(', ')}`,
       createdAt: new Date().toISOString(),
       reportTypes: analyzed.reportTypes,
       rows: analyzed.rows,

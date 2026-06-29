@@ -102,6 +102,12 @@ export default function App() {
   async function onFileUpload(fileList: FileList | null) {
     const files = Array.from(fileList ?? [])
     if (!files.length) return
+    const allowedExtensions = ['.csv', '.xlsx', '.xls', '.ods']
+    const unsupportedFiles = files.filter((file) => !allowedExtensions.some((extension) => file.name.toLowerCase().endsWith(extension)))
+    if (unsupportedFiles.length) {
+      setServerMessage(`Можно загрузить только таблицы CSV, XLSX, XLS или ODS. Уберите файл: ${unsupportedFiles.map((file) => file.name).join(', ')}`)
+      return
+    }
     setLoading(true)
     setServerMessage(files.length === 1 ? 'Загружаю файл и нормализую отчёт…' : `Загружаю ${files.length} файлов и собираю единый анализ…`)
     try {
@@ -110,7 +116,7 @@ export default function App() {
       await refresh()
       setServerMessage(`Готово: ${files.length} файл(ов), типы отчётов — ${reportTypesLabel(result.analysis.reportTypes)}`)
       window.setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120)
-    } catch { setServerMessage('Не получилось обработать файл. Проверьте backend и формат файла.') }
+    } catch (error) { setServerMessage(error instanceof Error ? error.message : 'Не получилось обработать файл. Проверьте backend и формат файла.') }
     finally { setLoading(false) }
   }
 
