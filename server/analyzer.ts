@@ -122,7 +122,9 @@ function parseRows(parsedRows: ParsedWorkbookRow[], unitMap: UnitMap): ProductMe
 
   for (const item of parsedRows) {
     const row = item.row
-    const sku = String(getByAliases(row, aliases.sku) || `row-${grouped.size + 1}`).trim()
+    const sku = String(getByAliases(row, aliases.sku) || '').trim()
+    if (!sku) continue
+
     const name = String(getByAliases(row, aliases.name) || sku).trim()
     const category = String(getByAliases(row, aliases.category) || 'Без категории').trim()
     const current = grouped.get(sku) ?? emptyMetric(sku, name, category)
