@@ -6,6 +6,8 @@ import * as XLSX from 'xlsx'
 import type { Analysis } from './types.js'
 
 const EXPORT_DIR = path.resolve('server/exports')
+const FONT_REGULAR = path.resolve('server/assets/fonts/NotoSans-Regular.ttf')
+const FONT_BOLD = path.resolve('server/assets/fonts/NotoSans-Bold.ttf')
 
 function money(value: number) {
   return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(value) + ' ₽'
@@ -104,14 +106,19 @@ export async function exportAnalysisPdf(analysis: Analysis) {
     const doc = new PDFDocument({ margin: 44, size: 'A4' })
     const stream = fs.createWriteStream(filePath)
     doc.pipe(stream)
+    doc.registerFont('NotoSans', FONT_REGULAR)
+    doc.registerFont('NotoSansBold', FONT_BOLD)
+    doc.font('NotoSans')
 
     doc.rect(0, 0, doc.page.width, 128).fill('#182033')
-    doc.fillColor('#FFC887').fontSize(11).text('СТРАТЕГ ДЛЯ МАРКЕТПЛЕЙСОВ', 44, 34, { characterSpacing: 1 })
+    doc.font('NotoSansBold').fillColor('#FFC887').fontSize(11).text('СТРАТЕГ ДЛЯ МАРКЕТПЛЕЙСОВ', 44, 34, { characterSpacing: 1 })
     doc.fillColor('#FFFFFF').fontSize(24).text('Отчёт по продажам и стратегии роста', 44, 58, { width: 500 })
+    doc.font('NotoSans')
     doc.fontSize(10).fillColor('#D9EAF7').text(`Файл: ${analysis.fileName} · ${new Date(analysis.createdAt).toLocaleString('ru-RU')}`, 44, 94)
 
     doc.y = 154
-    doc.fillColor('#182033').fontSize(15).text('Итоговые метрики')
+    doc.font('NotoSansBold').fillColor('#182033').fontSize(15).text('Итоговые метрики')
+    doc.font('NotoSans')
     const cards = [
       ['Продажи', money(analysis.totals.revenue)],
       ['Маржа', `${money(analysis.totals.margin)} / ${pct(analysis.totals.margin / Math.max(analysis.totals.revenue, 1))}`],
@@ -128,31 +135,31 @@ export async function exportAnalysisPdf(analysis: Analysis) {
         y += 72
       }
       doc.roundedRect(x, y, 158, 54, 10).fill('#FFF7EA')
-      doc.fillColor('#9A5B21').fontSize(8).text(label, x + 12, y + 10, { width: 134 })
-      doc.fillColor('#182033').fontSize(12).text(value, x + 12, y + 26, { width: 134 })
+      doc.font('NotoSans').fillColor('#9A5B21').fontSize(8).text(label, x + 12, y + 10, { width: 134 })
+      doc.font('NotoSansBold').fillColor('#182033').fontSize(12).text(value, x + 12, y + 26, { width: 134 })
       x += 172
     })
 
     doc.y = y + 88
-    doc.fillColor('#182033').fontSize(15).text('Стратегия месяца')
-    doc.moveDown(0.3).fontSize(12).fillColor('#38405D').text(analysis.strategy.headline, { lineGap: 3 })
+    doc.font('NotoSansBold').fillColor('#182033').fontSize(15).text('Стратегия месяца')
+    doc.moveDown(0.3).font('NotoSans').fontSize(12).fillColor('#38405D').text(analysis.strategy.headline, { lineGap: 3 })
 
-    doc.moveDown().fillColor('#182033').fontSize(14).text('Риски')
-    analysis.strategy.risks.forEach((item) => doc.fontSize(10).fillColor('#414B63').text(`• ${item}`, { lineGap: 2 }))
+    doc.moveDown().font('NotoSansBold').fillColor('#182033').fontSize(14).text('Риски')
+    analysis.strategy.risks.forEach((item) => doc.font('NotoSans').fontSize(10).fillColor('#414B63').text(`• ${item}`, { lineGap: 2 }))
 
-    doc.moveDown().fillColor('#182033').fontSize(14).text('Действия на месяц')
-    analysis.strategy.actions.forEach((item, index) => doc.fontSize(10).fillColor('#414B63').text(`${index + 1}. ${item}`, { lineGap: 2 }))
+    doc.moveDown().font('NotoSansBold').fillColor('#182033').fontSize(14).text('Действия на месяц')
+    analysis.strategy.actions.forEach((item, index) => doc.font('NotoSans').fontSize(10).fillColor('#414B63').text(`${index + 1}. ${item}`, { lineGap: 2 }))
 
     doc.addPage()
-    doc.fillColor('#182033').fontSize(18).text('ТОП товаров')
+    doc.font('NotoSansBold').fillColor('#182033').fontSize(18).text('ТОП товаров')
     analysis.rows
       .slice()
       .sort((a, b) => b.revenue - a.revenue)
       .slice(0, 15)
       .forEach((row, index) => {
         doc.moveDown(0.35)
-        doc.fontSize(10).fillColor('#182033').text(`${index + 1}. ${row.name}`)
-        doc.fontSize(9).fillColor('#6D7485').text(
+        doc.font('NotoSansBold').fontSize(10).fillColor('#182033').text(`${index + 1}. ${row.name}`)
+        doc.font('NotoSans').fontSize(9).fillColor('#6D7485').text(
           `SKU ${row.sku} · продажи ${money(row.revenue)} · маржа ${money(row.margin)} · ДДР ${pct(row.adSpend / Math.max(row.revenue, 1))} · остаток ${row.stock}`,
         )
       })

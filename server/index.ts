@@ -21,6 +21,16 @@ function unitMap() {
   return new Map(unitEconomics.map((item) => [item.sku, item]))
 }
 
+function decodeUploadFileName(fileName: string) {
+  if (!/[ÃÐÑ]/.test(fileName)) return fileName
+  try {
+    const decoded = Buffer.from(fileName, 'latin1').toString('utf8')
+    return decoded.includes('�') ? fileName : decoded
+  } catch {
+    return fileName
+  }
+}
+
 app.use(cors())
 app.use(express.json({ limit: '5mb' }))
 
@@ -72,7 +82,7 @@ app.post('/api/analyze', upload.array('files', 8), async (req, res, next) => {
     }
 
     const analyzed = analyzeFiles(
-      files.map((file) => ({ buffer: file.buffer, fileName: file.originalname })),
+      files.map((file) => ({ buffer: file.buffer, fileName: decodeUploadFileName(file.originalname) })),
       unitMap(),
     )
     if (!analyzed.rows.length) {
@@ -82,7 +92,10 @@ app.post('/api/analyze', upload.array('files', 8), async (req, res, next) => {
 
     const analysis: Analysis = {
       id: randomUUID(),
-      fileName: files.length === 1 ? files[0].originalname : `${files.length} файлов: ${files.map((file) => file.originalname).join(', ')}`,
+      fileName:
+        files.length === 1
+          ? decodeUploadFileName(files[0].originalname)
+          : `${files.length} файлов: ${files.map((file) => decodeUploadFileName(file.originalname)).join(', ')}`,
       createdAt: new Date().toISOString(),
       reportTypes: analyzed.reportTypes,
       rows: analyzed.rows,
