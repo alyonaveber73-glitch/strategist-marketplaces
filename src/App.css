@@ -228,9 +228,13 @@ h2 {
 
 .metrics-grid {
   display: grid;
-  grid-template-columns: repeat(7, minmax(130px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
   gap: 12px;
   margin: 22px 0;
+}
+
+.metric-analysis-panel {
+  margin-bottom: 22px;
 }
 
 .metrics-grid article {
