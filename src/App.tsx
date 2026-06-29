@@ -17,6 +17,9 @@ function reportTypesLabel(types: ReportType[]) { return types.map((type) => repo
 function buildMetricInsights(total: Totals, reportTypes: ReportType[]) {
   const loaded = new Set(reportTypes)
   const costs = total.costTotal + total.commissionTotal + total.acquiringTotal + total.logisticsTotal + total.taxTotal
+  const ddrRate = total.adSpend / Math.max(total.revenue, 1)
+  const marginRate = total.margin / Math.max(total.revenue, 1)
+  const costRate = costs / Math.max(total.revenue, 1)
   const insights: string[] = []
 
   if (total.revenue > 0) insights.push(`Продажи составили ${money(total.revenue)} при ${formatUnits(total.orders)} заказах.`)
@@ -25,14 +28,33 @@ function buildMetricInsights(total: Totals, reportTypes: ReportType[]) {
   if (total.stock > 0) insights.push(`Остатки: ${formatUnits(total.stock)} шт. Значение округлено для удобного чтения.`)
   else insights.push('Остатки не найдены — без них нельзя оценить риск out-of-stock.')
 
-  if (!loaded.has('ads') || total.adSpend === 0) insights.push('ДРР равен 0%, потому что рекламные расходы не загружены или равны нулю.')
-  else insights.push(`ДРР: ${percent(total.adSpend / Math.max(total.revenue, 1))}.`)
+  if (!loaded.has('ads') || total.adSpend === 0) {
+    insights.push('Анализ ДДР: ДДР равен 0%, потому что рекламные расходы не загружены или равны нулю. Чтобы оценить эффективность рекламы, добавьте рекламный отчёт.')
+  } else if (ddrRate <= 0.1) {
+    insights.push(`Анализ ДДР: ${percent(ddrRate)} — рекламная нагрузка низкая. Можно осторожно масштабировать товары с хорошей маржей и остатками.`)
+  } else if (ddrRate <= 0.25) {
+    insights.push(`Анализ ДДР: ${percent(ddrRate)} — нагрузка умеренная. Проверьте, сохраняется ли маржа после себестоимости и комиссий.`)
+  } else {
+    insights.push(`Анализ ДДР: ${percent(ddrRate)} — высокая рекламная нагрузка. Нужно снижать ставки/чистить кампании или повышать конверсию.`)
+  }
 
-  if (costs === 0 && total.revenue > 0) insights.push('Себестоимость + комиссии равны 0 ₽ — маржа не рассчитана. Нужно загрузить или заполнить справочник юнит-экономики.')
-  else insights.push(`Себестоимость + комиссии: ${money(costs)}.`)
+  if (costs === 0 && total.revenue > 0) {
+    insights.push('Анализ себестоимости+комиссий: показатель равен 0 ₽. Это не значит, что расходов нет — скорее не загружен справочник юнит-экономики или комиссии не сопоставились по SKU.')
+  } else {
+    insights.push(`Анализ себестоимости+комиссий: ${money(costs)} (${percent(costRate)} от продаж). Чем выше эта доля, тем меньше пространство для рекламы и скидок.`)
+  }
 
-  if (total.margin === 0 && total.revenue > 0) insights.push('Маржа сейчас 0 ₽: это сигнал, что не хватает расходов/комиссий/себестоимости для корректного расчёта.')
-  else insights.push(`Маржа: ${money(total.margin)} / ${percent(total.margin / Math.max(total.revenue, 1))}.`)
+  if (total.margin === 0 && total.revenue > 0) {
+    insights.push('Анализ маржи: маржа сейчас 0 ₽, потому что не хватает себестоимости/комиссий/эквайринга/логистики для корректного расчёта. После загрузки юнит-экономики маржа пересчитается автоматически.')
+  } else if (marginRate < 0) {
+    insights.push(`Анализ маржи: ${money(total.margin)} / ${percent(marginRate)} — продажи убыточны. Нужно проверить рекламу, комиссии, скидки и себестоимость.`)
+  } else if (marginRate < 0.15) {
+    insights.push(`Анализ маржи: ${money(total.margin)} / ${percent(marginRate)} — маржа низкая. Масштабировать рекламу рискованно без оптимизации расходов.`)
+  } else if (marginRate < 0.3) {
+    insights.push(`Анализ маржи: ${money(total.margin)} / ${percent(marginRate)} — маржа рабочая, но перед ростом рекламы стоит контролировать ДДР.`)
+  } else {
+    insights.push(`Анализ маржи: ${money(total.margin)} / ${percent(marginRate)} — хороший запас маржи, можно искать точки масштабирования при достаточных остатках.`)
+  }
 
   if (loaded.has('unknown')) insights.push('Есть нераспознанные листы — часть данных может не участвовать в расчётах.')
 
