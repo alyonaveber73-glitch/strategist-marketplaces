@@ -23,7 +23,51 @@ input {
 .page-shell {
   width: min(1180px, calc(100% - 32px));
   margin: 0 auto;
-  padding: 40px 0 56px;
+  padding: 24px 0 56px;
+}
+
+.site-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+  padding: 10px;
+  border: 1px solid rgba(24, 32, 51, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 12px 40px rgba(48, 38, 18, 0.08);
+  backdrop-filter: blur(10px);
+}
+
+.brand-button,
+.site-nav button {
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.brand-button {
+  padding: 11px 16px;
+  color: #182033;
+  background: #ffc887;
+}
+
+.site-nav {
+  display: flex;
+  gap: 8px;
+}
+
+.site-nav button {
+  padding: 11px 14px;
+  color: #4c566f;
+  background: transparent;
+}
+
+.site-nav button.active {
+  color: #fff;
+  background: #182033;
 }
 
 .hero-panel {
@@ -486,11 +530,101 @@ td strong {
   color: #788095;
 }
 
+.subscription-page {
+  display: grid;
+  gap: 22px;
+}
+
+.subscription-hero {
+  background:
+    radial-gradient(circle at 78% 18%, rgba(255, 200, 135, 0.45), transparent 28%),
+    linear-gradient(135deg, #ffffff, #eef5ff);
+}
+
+.subscription-hero h1 {
+  max-width: 760px;
+}
+
+.pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.price-card {
+  display: grid;
+  gap: 20px;
+  align-content: space-between;
+  min-height: 430px;
+  border: 1px solid rgba(24, 32, 51, 0.08);
+  border-radius: 28px;
+  padding: 24px;
+  background: #fff;
+  box-shadow: 0 14px 44px rgba(48, 38, 18, 0.06);
+}
+
+.price-card:nth-child(2) {
+  color: #fff;
+  background: linear-gradient(160deg, #182033, #38405d);
+  transform: translateY(-6px);
+}
+
+.price-card:nth-child(2) p,
+.price-card:nth-child(2) .insight-list {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.price-card span {
+  display: inline-flex;
+  width: fit-content;
+  margin-bottom: 12px;
+  border-radius: 999px;
+  padding: 8px 12px;
+  color: #9a5b21;
+  background: #fff7ea;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.price-card strong {
+  display: block;
+  margin: 12px 0;
+  font-size: 42px;
+  line-height: 1;
+  letter-spacing: -0.06em;
+}
+
+.price-card p,
+.subscription-note p {
+  color: #4c566f;
+  line-height: 1.5;
+}
+
+.price-card button {
+  border: 0;
+  border-radius: 999px;
+  padding: 13px 18px;
+  color: #fff;
+  background: #182033;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.price-card:nth-child(2) button {
+  color: #182033;
+  background: #ffc887;
+}
+
 @media (max-width: 1050px) {
   .hero-panel,
   .content-grid,
-  .quality-panel {
+  .quality-panel,
+  .pricing-grid {
     grid-template-columns: 1fr;
+  }
+
+  .price-card:nth-child(2) {
+    transform: none;
   }
 
   .metrics-grid {
@@ -501,7 +635,18 @@ td strong {
 @media (max-width: 620px) {
   .page-shell {
     width: min(100% - 20px, 1180px);
-    padding-top: 16px;
+    padding-top: 12px;
+  }
+
+  .site-header {
+    align-items: stretch;
+    flex-direction: column;
+    border-radius: 24px;
+  }
+
+  .site-nav {
+    display: grid;
+    grid-template-columns: 1fr;
   }
 
   .hero-panel,
@@ -513,4 +658,51 @@ td strong {
   .metrics-grid {
     grid-template-columns: 1fr;
   }
+}
+
+.hero-price-list {
+  display: grid;
+  gap: 10px;
+}
+
+.hero-price-list p {
+  margin: 0;
+  color: #ffc887;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hero-price-list button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 16px;
+  padding: 12px 14px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  text-align: left;
+}
+
+.hero-price-list button strong {
+  flex: 0 0 auto;
+  color: #ffc887;
+  font-size: 20px;
+  letter-spacing: -0.03em;
+}
+
+.hero-price-list button span {
+  color: #fff;
+  font-size: 14px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.metrics-grid {
+  scroll-margin-top: 24px;
 }

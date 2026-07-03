@@ -1,6 +1,6 @@
 import type { Analysis, UnitEconomics } from '../types/analytics'
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8787'
+const API_BASE = import.meta.env.VITE_API_BASE || ''
 
 export async function fetchAnalyses(): Promise<Analysis[]> {
   const response = await fetch(`${API_BASE}/api/analyses`)

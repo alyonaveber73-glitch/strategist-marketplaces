@@ -3,6 +3,8 @@ import './App.css'
 import { exportUrl, fetchAnalyses, fetchUnitEconomics, importUnitEconomics, saveUnitEconomics, uploadAnalysis, uploadImageAnalysis } from './lib/api'
 import type { Analysis, ProductMetric, ReportType, Strategy, Totals, UnitEconomics } from './types/analytics'
 
+type Page = 'home' | 'subscription'
+
 const demoRows: ProductMetric[] = [
   { sku: '3834285502', name: 'Молочко-тонер увлажняющий', category: 'Тоники', revenue: 146_211, orders: 151, adSpend: 16_790, margin: 46_815, impressions: 55_202, clicks: 2_946, carts: 822, stock: 84, promoRevenue: 0, costTotal: 14_929, commissionTotal: 67_950, acquiringTotal: 1_661, logisticsTotal: 0, taxTotal: 0 },
   { sku: '3866840308', name: 'BB-крем для лица', category: 'BB-крем', revenue: 127_673, orders: 133, adSpend: 25_667, margin: 21_448, impressions: 83_126, clicks: 3_110, carts: 771, stock: 62, promoRevenue: 0, costTotal: 11_559, commissionTotal: 51_804, acquiringTotal: 1_264, logisticsTotal: 0, taxTotal: 0 },
@@ -14,6 +16,12 @@ function percent(value: number) { return `${(value * 100).toFixed(1)}%` }
 function formatUnits(value: number) { return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(value) }
 const reportTypeLabels: Record<ReportType, string> = { sales: 'Продажи', ads: 'Реклама', stocks: 'Остатки', promotions: 'Акции/промо', unknown: 'Не распознано' }
 function reportTypesLabel(types: ReportType[]) { return types.map((type) => reportTypeLabels[type] ?? type).join(', ') }
+
+const subscriptionPlans = [
+  { name: 'Старт', price: '990 ₽', term: '1 месяц', description: 'Для разовой проверки магазина и первых тестов.', features: ['до 10 анализов отчётов', 'экспорт PDF/XLSX', 'история последних анализов'] },
+  { name: 'Профи', price: '2 490 ₽', term: '3 месяца', description: 'Для регулярной работы с Ozon/WB и еженедельных решений.', features: ['до 50 анализов в месяц', 'AI-стратегия по товарам', 'приоритет новых функций'] },
+  { name: 'Бизнес', price: '7 900 ₽', term: '12 месяцев', description: 'Для постоянного ведения магазина и команды.', features: ['безлимитные отчёты', 'расширенная история', 'поддержка внедрения'] },
+]
 function buildMetricInsights(total: Totals, reportTypes: ReportType[]) {
   const loaded = new Set(reportTypes)
   const costs = total.costTotal + total.commissionTotal + total.acquiringTotal + total.logisticsTotal + total.taxTotal
@@ -76,6 +84,8 @@ export default function App() {
   const [draftUnit, setDraftUnit] = useState<UnitEconomics>({ sku: '', name: '', cost: 0, commission: 0, acquiring: 0, logistics: 0, tax: 0 })
   const [loading, setLoading] = useState(false)
   const [serverMessage, setServerMessage] = useState('Готова обработать отчёты Ozon/WB')
+  const [page, setPage] = useState<Page>('home')
+  const [scrollAfterUpload, setScrollAfterUpload] = useState(false)
   const resultsRef = useRef<HTMLElement | null>(null)
 
   const rows = analysis.rows
@@ -90,6 +100,7 @@ export default function App() {
   const latestAnalyses = useMemo(() => history.slice(0, 8), [history])
   const metricInsights = useMemo(() => buildMetricInsights(total, analysis.reportTypes), [total, analysis.reportTypes])
   const hasUploadedAnalysis = Boolean(analysis.id)
+  const isDemoAnalysis = !hasUploadedAnalysis
 
   async function refresh() {
     const [loadedHistory, loadedUnits] = await Promise.all([fetchAnalyses(), fetchUnitEconomics()])
@@ -98,6 +109,14 @@ export default function App() {
   }
 
   useEffect(() => { refresh().catch(() => setServerMessage('Backend не запущен — показываю демо')) }, [])
+
+  useEffect(() => {
+    if (!scrollAfterUpload || !hasUploadedAnalysis) return
+    window.requestAnimationFrame(() => {
+      resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      setScrollAfterUpload(false)
+    })
+  }, [scrollAfterUpload, hasUploadedAnalysis, analysis.id])
 
   async function onFileUpload(fileList: FileList | null) {
     const files = Array.from(fileList ?? [])
@@ -124,9 +143,9 @@ export default function App() {
     try {
       const result = imageFiles.length ? await uploadImageAnalysis(imageFiles[0]) : await uploadAnalysis(files)
       setAnalysis(result.analysis)
+      setScrollAfterUpload(true)
       await refresh()
       setServerMessage(result.analysis.rows.length ? `Готово: ${files.length} файл(ов), типы отчётов — ${reportTypesLabel(result.analysis.reportTypes)}` : 'Готово: изображение проанализировано AI')
-      window.setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120)
     } catch (error) { setServerMessage(error instanceof Error ? error.message : 'Не получилось обработать файл. Проверьте backend и формат файла.') }
     finally { setLoading(false) }
   }
@@ -146,12 +165,55 @@ export default function App() {
     setServerMessage('Справочник юнит-экономики обновлён')
   }
 
-  return <main className="page-shell">
-    <section className="hero-panel"><div><p className="eyebrow">AI-платформа для продавцов маркетплейсов</p><h1>Стратег для маркетплейсов</h1><p className="hero-text">Загружаете один или несколько отчётов Ozon/WB — система объединяет продажи, рекламу, остатки и акции, считает маржу и готовит стратегию.</p><div className="hero-actions"><label className="upload-button">{loading ? 'Анализирую…' : 'Загрузить отчёты'}<input type="file" multiple accept=".csv,.xlsx,.xls,.ods,.png,.jpg,.jpeg,.webp" disabled={loading} onChange={(event) => onFileUpload(event.target.files)} /></label><span className="file-name">Источник: {analysis.fileName}</span></div><p className="server-message">{serverMessage}</p><div className="upload-hint"><strong>Можно загрузить пачкой:</strong><span>продажи + реклама + остатки + акции. Файлы объединятся в один отчёт по SKU.</span></div></div><aside className="strategy-card"><span>Стратегия месяца · {strategy.source === 'ai' ? 'AI' : 'rules'}</span><strong>{strategy.headline}</strong>{analysis.id && <div className="export-actions"><a href={exportUrl(analysis.id, 'xlsx')}>XLSX</a><a href={exportUrl(analysis.id, 'pdf')}>PDF</a></div>}</aside></section>
-    {hasUploadedAnalysis ? <>
+  const uploadPage = <>
+    <section className="hero-panel"><div><p className="eyebrow">AI-платформа для продавцов маркетплейсов</p><h1>Стратег для маркетплейсов</h1><p className="hero-text">Загружаете один или несколько отчётов Ozon/WB — система объединяет продажи, рекламу, остатки и акции, считает маржу и готовит стратегию.</p><div className="hero-actions"><label className="upload-button">{loading ? 'Анализирую…' : 'Загрузить отчёты'}<input type="file" multiple accept=".csv,.xlsx,.xls,.ods,.png,.jpg,.jpeg,.webp" disabled={loading} onChange={(event) => onFileUpload(event.target.files)} /></label><button className="plain-button" onClick={() => setPage('subscription')}>Посмотреть подписку</button><span className="file-name">Источник: {analysis.fileName}</span></div><p className="server-message">{serverMessage}</p><div className="upload-hint"><strong>Можно загрузить пачкой:</strong><span>продажи + реклама + остатки + акции. Файлы объединятся в один отчёт по SKU.</span></div></div><aside className="strategy-card"><span>Стратегия месяца · {strategy.source === 'ai' ? 'AI' : 'rules'}</span><strong>{strategy.headline}</strong><div className="hero-price-list"><p>Подписка</p>{subscriptionPlans.map((plan) => <button key={plan.name} onClick={() => setPage('subscription')}><span>{plan.name} · {plan.term}</span><strong>{plan.price}</strong></button>)}</div>{analysis.id && <div className="export-actions"><a href={exportUrl(analysis.id, 'xlsx')}>XLSX</a><a href={exportUrl(analysis.id, 'pdf')}>PDF</a></div>}</aside></section>
+    <section className="panel home-pricing-panel">
+      <div className="panel-header"><h2>Тарифы подписки</h2><p>Цены видны сразу на главной. Отдельная страница «Подписка» тоже остаётся в верхнем меню.</p></div>
+      <div className="pricing-grid compact-pricing">{subscriptionPlans.map((plan) => <article className="price-card" key={plan.name}>
+        <div><span>{plan.term}</span><h2>{plan.name}</h2><strong>{plan.price}</strong><p>{plan.description}</p></div>
+        <ul className="insight-list">{plan.features.map((feature) => <li key={feature}>{feature}</li>)}</ul>
+        <button onClick={() => setPage('subscription')}>Подробнее</button>
+      </article>)}</div>
+    </section>
+    <>
+      {isDemoAnalysis && <section className="panel empty-state-panel"><h2>Демо-анализ</h2><p>Это пример, чтобы страница не была пустой. Загрузите отчёты — и демо-цифры заменятся реальным анализом.</p></section>}
       <section ref={resultsRef} className="metrics-grid"><article><span>Продажи</span><strong>{money(total.revenue)}</strong></article><article><span>Маржа</span><strong>{money(total.margin)}</strong><small>{percent(marginRate)}</small></article><article><span>ДДР</span><strong>{percent(ddr)}</strong></article><article><span>Остатки</span><strong>{formatUnits(total.stock)}</strong></article><article><span>Себестоимость+комиссии</span><strong>{money(total.costTotal + total.commissionTotal + total.acquiringTotal + total.logisticsTotal + total.taxTotal)}</strong></article><article><span>Типы отчётов</span><strong>{reportTypesLabel(analysis.reportTypes)}</strong></article><article><span>Показ → клик</span><strong>{percent(ctr)}</strong></article><article><span>Клик → корзина</span><strong>{percent(cartConversion)}</strong></article><article><span>Корзина → заказ</span><strong>{percent(orderConversion)}</strong></article></section>
       <section className="panel metric-analysis-panel"><div className="panel-header"><h2>Анализ метрик</h2><p>Автоматические выводы по карточкам выше: что уже видно и каких данных не хватает.</p></div><ul className="insight-list">{metricInsights.map((insight) => <li key={insight}>{insight}</li>)}</ul></section>
       <section className="content-grid"><div className="panel quality-panel"><div className="panel-header"><h2>Качество данных</h2><p>Проверка перед стратегией: что распознано и чего не хватает.</p></div><div className="quality-score"><strong>{quality.score}</strong><span>/100</span></div><div className="quality-tags"><span>Найдено: {quality.recognizedReports.length ? reportTypesLabel(quality.recognizedReports) : 'нет'}</span><span>Не хватает: {quality.missingReports.length ? reportTypesLabel(quality.missingReports) : 'нет'}</span></div><ul className="insight-list">{quality.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>{quality.suggestions.length > 0 && <ol className="action-list quality-actions">{quality.suggestions.map((suggestion) => <li key={suggestion}>{suggestion}</li>)}</ol>}</div><div className="panel wide"><div className="panel-header"><h2>ТОП товаров</h2><p>Продажи, ДДР, маржа, остатки и расходы по справочнику.</p></div><div className="table-wrap"><table><thead><tr><th>Товар</th><th>Категория</th><th>Продажи</th><th>ДДР</th><th>Маржа</th><th>Остаток</th></tr></thead><tbody>{[...rows].sort((a, b) => b.revenue - a.revenue).map((row) => <tr key={row.sku}><td><strong>{row.name}</strong><small>{row.sku}</small></td><td>{row.category}</td><td>{money(row.revenue)}</td><td>{percent(row.adSpend / Math.max(row.revenue, 1))}</td><td>{money(row.margin)}</td><td>{formatUnits(row.stock)}</td></tr>)}</tbody></table></div></div><div className="panel"><h2>Справочник юнит-экономики</h2><div className="unit-form"><input placeholder="SKU" value={draftUnit.sku} onChange={(e) => setDraftUnit({ ...draftUnit, sku: e.target.value })} /><input placeholder="Название" value={draftUnit.name} onChange={(e) => setDraftUnit({ ...draftUnit, name: e.target.value })} /><input placeholder="Себестоимость" type="number" value={draftUnit.cost} onChange={(e) => setDraftUnit({ ...draftUnit, cost: Number(e.target.value) })} /><input placeholder="Комиссия" type="number" value={draftUnit.commission} onChange={(e) => setDraftUnit({ ...draftUnit, commission: Number(e.target.value) })} /><input placeholder="Эквайринг" type="number" value={draftUnit.acquiring} onChange={(e) => setDraftUnit({ ...draftUnit, acquiring: Number(e.target.value) })} /><button onClick={addUnit}>Сохранить SKU</button><label className="mini-upload">Импорт XLSX<input type="file" accept=".csv,.xlsx,.xls,.ods" onChange={(e) => importUnits(e.target.files?.[0] ?? null)} /></label></div><small>Записей: {units.length}</small></div><div className="panel"><h2>Риски</h2><ul className="insight-list">{strategy.risks.map((risk) => <li key={risk}>{risk}</li>)}</ul></div><div className="panel"><h2>Рекомендации на месяц</h2><ol className="action-list">{strategy.actions.map((action) => <li key={action}>{action}</li>)}</ol></div><div className="panel"><h2>История в памяти сервера</h2><ul className="history-list">{latestAnalyses.map((item) => <li key={item.id}><button onClick={() => setAnalysis(item)}>{item.fileName}<small>{reportTypesLabel(item.reportTypes)}</small></button></li>)}</ul></div></section>
-    </> : <section ref={resultsRef} className="panel empty-state-panel"><h2>Загрузите отчёты, чтобы увидеть анализ</h2><p>Начальная демо-статистика и таблица скрыты. После загрузки файлов здесь появятся метрики, анализ, качество данных и таблица товаров.</p></section>}
+    </>
+
+  </>
+
+  const subscriptionPage = <section className="subscription-page">
+    <div className="subscription-hero panel">
+      <p className="eyebrow">Подписка</p>
+      <h1>Выберите срок доступа</h1>
+      <p className="hero-text">Простая страница тарифов для MVP: цена, срок подписки и что получает клиент. Кнопки пока ведут к заявке, оплату можно подключить следующим шагом.</p>
+    </div>
+    <div className="pricing-grid">{subscriptionPlans.map((plan) => <article className="price-card" key={plan.name}>
+      <div>
+        <span>{plan.term}</span>
+        <h2>{plan.name}</h2>
+        <strong>{plan.price}</strong>
+        <p>{plan.description}</p>
+      </div>
+      <ul className="insight-list">{plan.features.map((feature) => <li key={feature}>{feature}</li>)}</ul>
+      <button onClick={() => setServerMessage(`Вы выбрали тариф ${plan.name} на ${plan.term}. Следующий шаг — подключить оплату или форму заявки.`)}>Выбрать тариф</button>
+    </article>)}</div>
+    <section className="panel subscription-note">
+      <h2>Что ещё можно добавить потом</h2>
+      <p>Личный кабинет, оплату, автоматическое продление и проверку активной подписки перед анализом файлов.</p>
+    </section>
+  </section>
+
+  return <main className="page-shell">
+    <header className="site-header">
+      <button className="brand-button" onClick={() => setPage('home')}>Стратег маркетплейсов</button>
+      <nav className="site-nav" aria-label="Главная навигация">
+        <button className={page === 'home' ? 'active' : ''} onClick={() => setPage('home')}>Главная / загрузка</button>
+        <button className={page === 'subscription' ? 'active' : ''} onClick={() => setPage('subscription')}>Подписка</button>
+      </nav>
+    </header>
+    {page === 'home' ? uploadPage : subscriptionPage}
   </main>
 }
