@@ -84,3 +84,17 @@ export type AuthResponse = {
   token: string
   expiresAt: string
 }
+
+export type OzonConversionRow = {
+  sku: string
+  offerId: string
+  name: string
+  revenue: number
+  orders: number
+  impressions: number
+  clicks: number
+  carts: number
+  viewToCart: number
+  cartToOrder: number
+  viewToOrder: number
+}
