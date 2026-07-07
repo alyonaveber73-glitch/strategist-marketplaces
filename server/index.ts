@@ -13,7 +13,6 @@ import { buildAiStrategy, buildImageAiStrategy } from './strategy.js'
 import { optionalAuth, requireAuth } from './auth.js'
 import { authenticateUser, createSession, createUser, deleteSession, getAnalysis, listAnalyses, listPayments, listUnitEconomics, saveAnalysis, savePayment, storageEngine, upsertUnitEconomics } from './db.js'
 import { createYooKassaPayment, isPlanKey, plans } from './payments.js'
-import { fetchOzonConversions } from './ozon.js'
 import type { Analysis } from './types.js'
 
 const app = express()
@@ -105,18 +104,6 @@ app.get('/api/me', requireAuth, async (req, res) => {
 
 app.get('/api/plans', (_req, res) => {
   res.json({ plans })
-})
-
-app.get('/api/ozon/conversions', async (_req, res, next) => {
-  try {
-    res.json(await fetchOzonConversions())
-  } catch (error) {
-    if (error instanceof Error && error.name === 'OZON_KEYS_MISSING') {
-      res.status(400).json({ error: 'OZON_KEYS_MISSING', message: error.message })
-      return
-    }
-    next(error)
-  }
 })
 
 app.post('/api/payments/yookassa', requireAuth, async (req, res, next) => {

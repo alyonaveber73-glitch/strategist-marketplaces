@@ -5,7 +5,6 @@ import {
   exportUrl,
   fetchAnalyses,
   fetchMe,
-  fetchOzonConversions,
   fetchUnitEconomics,
   importUnitEconomics,
   loginAccount,
@@ -17,7 +16,6 @@ import {
 } from "./lib/api";
 import type {
   Analysis,
-  OzonConversionRow,
   Payment,
   ReportType,
   Totals,
@@ -25,7 +23,7 @@ import type {
   User,
 } from "./types/analytics";
 
-type Page = "home" | "subscription" | "account" | "ozon";
+type Page = "home" | "subscription" | "account";
 type AuthMode = "login" | "register";
 
 const emptyTotals: Totals = {
@@ -249,9 +247,6 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [paymentLoading, setPaymentLoading] = useState("");
-  const [ozonRows, setOzonRows] = useState<OzonConversionRow[]>([]);
-  const [ozonPeriod, setOzonPeriod] = useState("");
-  const [ozonLoading, setOzonLoading] = useState(false);
   const resultsRef = useRef<HTMLElement | null>(null);
 
   const rows = analysis.rows;
@@ -448,24 +443,6 @@ export default function App() {
       );
     } finally {
       setPaymentLoading("");
-    }
-  }
-
-  async function loadOzonConversions() {
-    setOzonLoading(true);
-    try {
-      const result = await fetchOzonConversions();
-      setOzonRows(result.rows);
-      setOzonPeriod(`${result.period.from} — ${result.period.to}`);
-      setServerMessage(`Ozon: загружено строк ${result.rows.length}`);
-    } catch (error) {
-      setServerMessage(
-        error instanceof Error
-          ? error.message
-          : "Не получилось получить конверсии Ozon",
-      );
-    } finally {
-      setOzonLoading(false);
     }
   }
 
@@ -850,74 +827,6 @@ export default function App() {
     </section>
   );
 
-  const ozonPage = (
-    <section className="ozon-page panel">
-      <p className="eyebrow">Ozon Seller API</p>
-      <h1>Таблица конверсий</h1>
-      <p className="hero-text">
-        Подтягиваем аналитику по SKU из Ozon Seller API: показы, переходы,
-        корзины, заказы, выручку и конверсии.
-      </p>
-      <div className="hero-actions">
-        <button
-          className="upload-button"
-          onClick={loadOzonConversions}
-          disabled={ozonLoading}
-        >
-          {ozonLoading ? "Загружаю…" : "Обновить из Ozon"}
-        </button>
-        {ozonPeriod && <span className="file-name">Период: {ozonPeriod}</span>}
-      </div>
-      <p className="server-message">{serverMessage}</p>
-      <div className="table-wrap ozon-table">
-        <table>
-          <thead>
-            <tr>
-              <th>SKU</th>
-              <th>Товар</th>
-              <th>Выручка</th>
-              <th>Показы</th>
-              <th>Переходы</th>
-              <th>Корзины</th>
-              <th>Заказы</th>
-              <th>Показ → корзина</th>
-              <th>Корзина → заказ</th>
-              <th>Показ → заказ</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ozonRows.length ? (
-              ozonRows.map((row) => (
-                <tr key={`${row.sku}-${row.offerId}`}>
-                  <td>
-                    <strong>{row.sku}</strong>
-                    <small>{row.offerId}</small>
-                  </td>
-                  <td>{row.name}</td>
-                  <td>{money(row.revenue)}</td>
-                  <td>{formatUnits(row.impressions)}</td>
-                  <td>{formatUnits(row.clicks)}</td>
-                  <td>{formatUnits(row.carts)}</td>
-                  <td>{formatUnits(row.orders)}</td>
-                  <td>{percent(row.viewToCart)}</td>
-                  <td>{percent(row.cartToOrder)}</td>
-                  <td>{percent(row.viewToOrder)}</td>
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan={10}>
-                  Нажмите «Обновить из Ozon». Если ключи ещё не добавлены в
-                  .env, сайт покажет подсказку.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
-
   const accountPage = (
     <section className="account-page panel">
       <p className="eyebrow">Личный кабинет</p>
@@ -1023,12 +932,6 @@ export default function App() {
             Подписка
           </button>
           <button
-            className={page === "ozon" ? "active" : ""}
-            onClick={() => setPage("ozon")}
-          >
-            Ozon конверсии
-          </button>
-          <button
             className={page === "account" ? "active" : ""}
             onClick={() => setPage("account")}
           >
@@ -1040,9 +943,7 @@ export default function App() {
         ? uploadPage
         : page === "subscription"
           ? subscriptionPage
-          : page === "ozon"
-            ? ozonPage
-            : accountPage}
+          : accountPage}
     </main>
   );
 }

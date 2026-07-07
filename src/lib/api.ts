@@ -1,4 +1,4 @@
-import type { Analysis, AuthResponse, OzonConversionRow, Payment, UnitEconomics, User } from '../types/analytics'
+import type { Analysis, AuthResponse, Payment, UnitEconomics, User } from '../types/analytics'
 
 const API_BASE = import.meta.env.VITE_API_BASE || ''
 let authToken = localStorage.getItem('authToken') || ''
@@ -50,12 +50,6 @@ export async function createPayment(plan: string) {
   const response = await fetch(`${API_BASE}/api/payments/yookassa`, { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ plan, returnUrl: window.location.origin }) })
   if (!response.ok) throw new Error(await readError(response, 'Не удалось создать платёж'))
   return await response.json() as { payment: Payment }
-}
-
-export async function fetchOzonConversions() {
-  const response = await fetch(`${API_BASE}/api/ozon/conversions`)
-  if (!response.ok) throw new Error(await readError(response, 'Не удалось получить конверсии Ozon'))
-  return await response.json() as { rows: OzonConversionRow[]; period: { from: string; to: string }; source: string }
 }
 
 export async function fetchAnalyses(): Promise<Analysis[]> {
