@@ -10,7 +10,10 @@ import { analyzeFiles, parseUnitEconomicsBuffer } from './analyzer.js'
 import { exportAnalysisPdf, exportAnalysisXlsx } from './exporters.js'
 import { buildDataQuality } from './quality.js'
 import { buildAiStrategy, buildImageAiStrategy } from './strategy.js'
-import type { Analysis, UnitEconomics } from './types.js'
+import { optionalAuth, requireAuth } from './auth.js'
+import { authenticateUser, createSession, createUser, deleteSession, getAnalysis, listAnalyses, listPayments, listUnitEconomics, saveAnalysis, savePayment, upsertUnitEconomics } from './db.js'
+import { createYooKassaPayment, isPlanKey, plans } from './payments.js'
+import type { Analysis } from './types.js'
 
 const app = express()
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } })
@@ -20,11 +23,8 @@ const distPath = path.resolve(__dirname, '../dist')
 const SUPPORTED_EXTENSIONS = ['.csv', '.xlsx', '.xls', '.ods']
 const SUPPORTED_IMAGE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp']
 
-const analyses = new Map<string, Analysis>()
-let unitEconomics: UnitEconomics[] = []
-
 function unitMap() {
-  return new Map(unitEconomics.map((item) => [item.sku, item]))
+  return new Map(listUnitEconomics().map((item) => [item.sku, item]))
 }
 
 function isSupportedSpreadsheet(fileName: string) {
@@ -54,31 +54,90 @@ app.use(express.static(distPath, {
   },
 }))
 
+app.use(optionalAuth)
+
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, ai: Boolean(process.env.OPENAI_API_KEY), storage: 'in-memory' })
+  res.json({ ok: true, ai: Boolean(process.env.OPENAI_API_KEY), storage: 'sqlite', payments: Boolean(process.env.YOOKASSA_SHOP_ID && process.env.YOOKASSA_SECRET_KEY) })
+})
+
+app.post('/api/auth/register', (req, res, next) => {
+  try {
+    const email = String(req.body.email || '')
+    const password = String(req.body.password || '')
+    const name = String(req.body.name || '')
+    if (!email.includes('@') || password.length < 6) {
+      res.status(400).json({ error: 'INVALID_AUTH_DATA', message: 'Укажите email и пароль от 6 символов.' })
+      return
+    }
+    const user = createUser(email, password, name)
+    if (!user) throw new Error('USER_NOT_CREATED')
+    const session = createSession(user.id)
+    res.json({ user, token: session.token, expiresAt: session.expiresAt })
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('UNIQUE')) {
+      res.status(409).json({ error: 'EMAIL_EXISTS', message: 'Аккаунт с таким email уже есть.' })
+      return
+    }
+    next(error)
+  }
+})
+
+app.post('/api/auth/login', (req, res) => {
+  const user = authenticateUser(String(req.body.email || ''), String(req.body.password || ''))
+  if (!user) {
+    res.status(401).json({ error: 'INVALID_CREDENTIALS', message: 'Неверный email или пароль.' })
+    return
+  }
+  const session = createSession(user.id)
+  res.json({ user, token: session.token, expiresAt: session.expiresAt })
+})
+
+app.post('/api/auth/logout', requireAuth, (req, res) => {
+  if (req.authToken) deleteSession(req.authToken)
+  res.json({ ok: true })
+})
+
+app.get('/api/me', requireAuth, (req, res) => {
+  res.json({ user: req.user, payments: listPayments(req.user!.id) })
+})
+
+app.get('/api/plans', (_req, res) => {
+  res.json({ plans })
+})
+
+app.post('/api/payments/yookassa', requireAuth, async (req, res, next) => {
+  try {
+    const plan = String(req.body.plan || '')
+    if (!isPlanKey(plan)) {
+      res.status(400).json({ error: 'INVALID_PLAN', message: 'Выберите тариф.' })
+      return
+    }
+    const returnUrl = String(req.body.returnUrl || process.env.PUBLIC_URL || 'http://strateg-marketplaces.ru/')
+    const payment = await createYooKassaPayment({ plan, userId: req.user!.id, email: req.user!.email, returnUrl })
+    const savedPayment = { id: payment.id, userId: req.user!.id, plan, amount: payment.amount, status: payment.status, confirmationUrl: payment.confirmationUrl, createdAt: new Date().toISOString() }
+    savePayment(savedPayment, payment.raw)
+    res.json({ payment: savedPayment })
+  } catch (error) {
+    next(error)
+  }
 })
 
 app.get('/api/unit-economics', (_req, res) => {
-  res.json({ items: unitEconomics })
+  res.json({ items: listUnitEconomics() })
 })
 
 app.post('/api/unit-economics', (req, res) => {
-  const items = Array.isArray(req.body.items) ? req.body.items : [req.body]
-  const map = new Map(unitEconomics.map((item) => [item.sku, item]))
-  for (const item of items) {
-    if (!item.sku) continue
-    map.set(String(item.sku), {
-      sku: String(item.sku),
-      name: String(item.name || ''),
-      cost: Number(item.cost || 0),
-      commission: Number(item.commission || 0),
-      acquiring: Number(item.acquiring || 0),
-      logistics: Number(item.logistics || 0),
-      tax: Number(item.tax || 0),
-    })
-  }
-  unitEconomics = [...map.values()]
-  res.json({ items: unitEconomics })
+  const rawItems = Array.isArray(req.body.items) ? req.body.items : [req.body]
+  const items = rawItems.map((item) => ({
+    sku: String(item.sku || ''),
+    name: String(item.name || ''),
+    cost: Number(item.cost || 0),
+    commission: Number(item.commission || 0),
+    acquiring: Number(item.acquiring || 0),
+    logistics: Number(item.logistics || 0),
+    tax: Number(item.tax || 0),
+  }))
+  res.json({ items: upsertUnitEconomics(items) })
 })
 
 app.post('/api/unit-economics/import', upload.single('file'), (req, res) => {
@@ -87,10 +146,7 @@ app.post('/api/unit-economics/import', upload.single('file'), (req, res) => {
     return
   }
   const imported = parseUnitEconomicsBuffer(req.file.buffer, req.file.originalname)
-  const map = new Map(unitEconomics.map((item) => [item.sku, item]))
-  imported.forEach((item) => map.set(item.sku, item))
-  unitEconomics = [...map.values()]
-  res.json({ items: unitEconomics, imported: imported.length })
+  res.json({ items: upsertUnitEconomics(imported), imported: imported.length })
 })
 
 
@@ -139,7 +195,7 @@ app.post('/api/analyze-image', upload.single('file'), async (req, res, next) => 
         suggestions: ['Для точных продаж, маржи и ДДР загрузите CSV/XLSX/XLS/ODS отчёты.', 'Скриншоты используйте для быстрого визуального разбора и пояснений.'],
       },
     }
-    analyses.set(analysis.id, analysis)
+    saveAnalysis(analysis)
     res.json({ analysis })
   } catch (error) {
     next(error)
@@ -186,7 +242,7 @@ app.post('/api/analyze', upload.array('files', 8), async (req, res, next) => {
       strategy: await buildAiStrategy(analyzed.rows, analyzed.totals),
       quality: buildDataQuality(analyzed.rows, analyzed.totals, analyzed.reportTypes),
     }
-    analyses.set(analysis.id, analysis)
+    saveAnalysis(analysis)
     res.json({ analysis })
   } catch (error) {
     next(error)
@@ -194,12 +250,12 @@ app.post('/api/analyze', upload.array('files', 8), async (req, res, next) => {
 })
 
 app.get('/api/analyses', (_req, res) => {
-  res.json({ analyses: [...analyses.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 20) })
+  res.json({ analyses: listAnalyses(20) })
 })
 
 app.get('/api/export/:analysisId.xlsx', async (req, res, next) => {
   try {
-    const analysis = analyses.get(req.params.analysisId)
+    const analysis = getAnalysis(req.params.analysisId)
     if (!analysis) {
       res.status(404).json({ error: 'ANALYSIS_NOT_FOUND' })
       return
@@ -216,7 +272,7 @@ app.get('/api/export/:analysisId.xlsx', async (req, res, next) => {
 
 app.get('/api/export/:analysisId.pdf', async (req, res, next) => {
   try {
-    const analysis = analyses.get(req.params.analysisId)
+    const analysis = getAnalysis(req.params.analysisId)
     if (!analysis) {
       res.status(404).json({ error: 'ANALYSIS_NOT_FOUND' })
       return

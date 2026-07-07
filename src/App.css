@@ -706,3 +706,43 @@ td strong {
 .metrics-grid {
   scroll-margin-top: 24px;
 }
+
+.account-page {
+  margin-top: 20px;
+}
+
+.account-grid,
+.auth-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.account-grid {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.account-box,
+.auth-panel {
+  border: 1px solid rgba(24, 32, 51, 0.08);
+  border-radius: 24px;
+  padding: 20px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.auth-panel {
+  max-width: 520px;
+}
+
+.auth-panel .project-input {
+  width: 100%;
+  border-radius: 18px;
+}
+
+.auth-tabs button.active {
+  color: #fff;
+  background: #182033;
+}
+
+.account-box .history-list button {
+  cursor: default;
+}

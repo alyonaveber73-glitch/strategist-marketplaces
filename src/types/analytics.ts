@@ -58,3 +58,29 @@ export type UnitEconomics = {
   tax: number
   logistics: number
 }
+
+export type User = {
+  id: string
+  email: string
+  name: string
+  createdAt: string
+  subscriptionStatus: string
+  subscriptionPlan: string | null
+  subscriptionUntil: string | null
+}
+
+export type Payment = {
+  id: string
+  userId: string
+  plan: string
+  amount: number
+  status: string
+  confirmationUrl: string
+  createdAt: string
+}
+
+export type AuthResponse = {
+  user: User
+  token: string
+  expiresAt: string
+}
