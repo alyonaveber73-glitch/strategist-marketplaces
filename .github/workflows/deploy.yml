@@ -20,13 +20,36 @@ jobs:
           script: |
             set -e
             APP_DIR="${{ secrets.APP_DIR }}"
-            if [ -z "$APP_DIR" ]; then APP_DIR="/var/www/strategist-marketplaces"; fi
             SERVICE_NAME="${{ secrets.SERVICE_NAME }}"
             if [ -z "$SERVICE_NAME" ]; then SERVICE_NAME="strategist-marketplaces"; fi
+
+            if [ -z "$APP_DIR" ] || [ ! -d "$APP_DIR" ]; then
+              for candidate in \
+                "$HOME/strategist-marketplaces" \
+                "$HOME/www/strategist-marketplaces" \
+                "/var/www/strategist-marketplaces" \
+                "/opt/strategist-marketplaces" \
+                "/home/$USER/strategist-marketplaces" \
+                "/root/strategist-marketplaces"; do
+                if [ -d "$candidate/.git" ]; then APP_DIR="$candidate"; break; fi
+              done
+            fi
+
+            if [ -z "$APP_DIR" ] || [ ! -d "$APP_DIR/.git" ]; then
+              APP_DIR="$HOME/strategist-marketplaces"
+              git clone https://github.com/alyonaveber73-glitch/strategist-marketplaces.git "$APP_DIR"
+            fi
+
+            echo "Deploying in $APP_DIR"
             cd "$APP_DIR"
             git fetch origin main
             git reset --hard origin/main
             if [ -f package-lock.json ]; then npm ci; else npm install; fi
             npm run build
-            sudo systemctl restart "$SERVICE_NAME"
-            sudo systemctl --no-pager --full status "$SERVICE_NAME" | sed -n '1,25p'
+
+            if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files | grep -q "^$SERVICE_NAME.service"; then
+              sudo systemctl restart "$SERVICE_NAME"
+              sudo systemctl --no-pager --full status "$SERVICE_NAME" | sed -n '1,25p'
+            else
+              echo "systemd service $SERVICE_NAME not found; build finished in $APP_DIR"
+            fi
