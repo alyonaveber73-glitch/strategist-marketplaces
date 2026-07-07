@@ -11,7 +11,7 @@ import { exportAnalysisPdf, exportAnalysisXlsx } from './exporters.js'
 import { buildDataQuality } from './quality.js'
 import { buildAiStrategy, buildImageAiStrategy } from './strategy.js'
 import { optionalAuth, requireAuth } from './auth.js'
-import { authenticateUser, createSession, createUser, deleteSession, getAnalysis, listAnalyses, listPayments, listUnitEconomics, saveAnalysis, savePayment, upsertUnitEconomics } from './db.js'
+import { authenticateUser, createSession, createUser, deleteSession, getAnalysis, listAnalyses, listPayments, listUnitEconomics, saveAnalysis, savePayment, storageEngine, upsertUnitEconomics } from './db.js'
 import { createYooKassaPayment, isPlanKey, plans } from './payments.js'
 import type { Analysis } from './types.js'
 
@@ -23,8 +23,9 @@ const distPath = path.resolve(__dirname, '../dist')
 const SUPPORTED_EXTENSIONS = ['.csv', '.xlsx', '.xls', '.ods']
 const SUPPORTED_IMAGE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp']
 
-function unitMap() {
-  return new Map(listUnitEconomics().map((item) => [item.sku, item]))
+async function unitMap() {
+  const units = await listUnitEconomics()
+  return new Map(units.map((item) => [item.sku, item]))
 }
 
 function isSupportedSpreadsheet(fileName: string) {
@@ -57,10 +58,10 @@ app.use(express.static(distPath, {
 app.use(optionalAuth)
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, ai: Boolean(process.env.OPENAI_API_KEY), storage: 'sqlite', payments: Boolean(process.env.YOOKASSA_SHOP_ID && process.env.YOOKASSA_SECRET_KEY) })
+  res.json({ ok: true, ai: Boolean(process.env.OPENAI_API_KEY), storage: storageEngine(), payments: Boolean(process.env.YOOKASSA_SHOP_ID && process.env.YOOKASSA_SECRET_KEY) })
 })
 
-app.post('/api/auth/register', (req, res, next) => {
+app.post('/api/auth/register', async (req, res, next) => {
   try {
     const email = String(req.body.email || '')
     const password = String(req.body.password || '')
@@ -69,9 +70,9 @@ app.post('/api/auth/register', (req, res, next) => {
       res.status(400).json({ error: 'INVALID_AUTH_DATA', message: 'Укажите email и пароль от 6 символов.' })
       return
     }
-    const user = createUser(email, password, name)
+    const user = await createUser(email, password, name)
     if (!user) throw new Error('USER_NOT_CREATED')
-    const session = createSession(user.id)
+    const session = await createSession(user.id)
     res.json({ user, token: session.token, expiresAt: session.expiresAt })
   } catch (error) {
     if (error instanceof Error && error.message.includes('UNIQUE')) {
@@ -82,23 +83,23 @@ app.post('/api/auth/register', (req, res, next) => {
   }
 })
 
-app.post('/api/auth/login', (req, res) => {
-  const user = authenticateUser(String(req.body.email || ''), String(req.body.password || ''))
+app.post('/api/auth/login', async (req, res) => {
+  const user = await authenticateUser(String(req.body.email || ''), String(req.body.password || ''))
   if (!user) {
     res.status(401).json({ error: 'INVALID_CREDENTIALS', message: 'Неверный email или пароль.' })
     return
   }
-  const session = createSession(user.id)
+  const session = await createSession(user.id)
   res.json({ user, token: session.token, expiresAt: session.expiresAt })
 })
 
-app.post('/api/auth/logout', requireAuth, (req, res) => {
-  if (req.authToken) deleteSession(req.authToken)
+app.post('/api/auth/logout', requireAuth, async (req, res) => {
+  if (req.authToken) await deleteSession(req.authToken)
   res.json({ ok: true })
 })
 
-app.get('/api/me', requireAuth, (req, res) => {
-  res.json({ user: req.user, payments: listPayments(req.user!.id) })
+app.get('/api/me', requireAuth, async (req, res) => {
+  res.json({ user: req.user, payments: await listPayments(req.user!.id) })
 })
 
 app.get('/api/plans', (_req, res) => {
@@ -115,18 +116,18 @@ app.post('/api/payments/yookassa', requireAuth, async (req, res, next) => {
     const returnUrl = String(req.body.returnUrl || process.env.PUBLIC_URL || 'http://strateg-marketplaces.ru/')
     const payment = await createYooKassaPayment({ plan, userId: req.user!.id, email: req.user!.email, returnUrl })
     const savedPayment = { id: payment.id, userId: req.user!.id, plan, amount: payment.amount, status: payment.status, confirmationUrl: payment.confirmationUrl, createdAt: new Date().toISOString() }
-    savePayment(savedPayment, payment.raw)
+    await savePayment(savedPayment, payment.raw)
     res.json({ payment: savedPayment })
   } catch (error) {
     next(error)
   }
 })
 
-app.get('/api/unit-economics', (_req, res) => {
-  res.json({ items: listUnitEconomics() })
+app.get('/api/unit-economics', async (_req, res) => {
+  res.json({ items: await listUnitEconomics() })
 })
 
-app.post('/api/unit-economics', (req, res) => {
+app.post('/api/unit-economics', async (req, res) => {
   const rawItems = Array.isArray(req.body.items) ? req.body.items : [req.body]
   const items = rawItems.map((item) => ({
     sku: String(item.sku || ''),
@@ -137,16 +138,16 @@ app.post('/api/unit-economics', (req, res) => {
     logistics: Number(item.logistics || 0),
     tax: Number(item.tax || 0),
   }))
-  res.json({ items: upsertUnitEconomics(items) })
+  res.json({ items: await upsertUnitEconomics(items) })
 })
 
-app.post('/api/unit-economics/import', upload.single('file'), (req, res) => {
+app.post('/api/unit-economics/import', upload.single('file'), async (req, res) => {
   if (!req.file) {
     res.status(400).json({ error: 'FILE_REQUIRED' })
     return
   }
   const imported = parseUnitEconomicsBuffer(req.file.buffer, req.file.originalname)
-  res.json({ items: upsertUnitEconomics(imported), imported: imported.length })
+  res.json({ items: await upsertUnitEconomics(imported), imported: imported.length })
 })
 
 
@@ -195,7 +196,7 @@ app.post('/api/analyze-image', upload.single('file'), async (req, res, next) => 
         suggestions: ['Для точных продаж, маржи и ДДР загрузите CSV/XLSX/XLS/ODS отчёты.', 'Скриншоты используйте для быстрого визуального разбора и пояснений.'],
       },
     }
-    saveAnalysis(analysis)
+    await saveAnalysis(analysis)
     res.json({ analysis })
   } catch (error) {
     next(error)
@@ -222,7 +223,7 @@ app.post('/api/analyze', upload.array('files', 8), async (req, res, next) => {
 
     const analyzed = analyzeFiles(
       normalizedFiles.map((file) => ({ buffer: file.buffer, fileName: file.originalname })),
-      unitMap(),
+      await unitMap(),
     )
     if (!analyzed.rows.length) {
       res.status(422).json({ error: 'NO_DATA_RECOGNIZED', sheetNames: analyzed.sheetNames, reportTypes: analyzed.reportTypes })
@@ -242,20 +243,20 @@ app.post('/api/analyze', upload.array('files', 8), async (req, res, next) => {
       strategy: await buildAiStrategy(analyzed.rows, analyzed.totals),
       quality: buildDataQuality(analyzed.rows, analyzed.totals, analyzed.reportTypes),
     }
-    saveAnalysis(analysis)
+    await saveAnalysis(analysis)
     res.json({ analysis })
   } catch (error) {
     next(error)
   }
 })
 
-app.get('/api/analyses', (_req, res) => {
-  res.json({ analyses: listAnalyses(20) })
+app.get('/api/analyses', async (_req, res) => {
+  res.json({ analyses: await listAnalyses(20) })
 })
 
 app.get('/api/export/:analysisId.xlsx', async (req, res, next) => {
   try {
-    const analysis = getAnalysis(req.params.analysisId)
+    const analysis = await getAnalysis(req.params.analysisId)
     if (!analysis) {
       res.status(404).json({ error: 'ANALYSIS_NOT_FOUND' })
       return
@@ -272,7 +273,7 @@ app.get('/api/export/:analysisId.xlsx', async (req, res, next) => {
 
 app.get('/api/export/:analysisId.pdf', async (req, res, next) => {
   try {
-    const analysis = getAnalysis(req.params.analysisId)
+    const analysis = await getAnalysis(req.params.analysisId)
     if (!analysis) {
       res.status(404).json({ error: 'ANALYSIS_NOT_FOUND' })
       return

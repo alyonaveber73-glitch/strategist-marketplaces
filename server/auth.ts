@@ -16,20 +16,28 @@ export function getBearerToken(req: Request) {
   return match?.[1] || ''
 }
 
-export function optionalAuth(req: Request, _res: Response, next: NextFunction) {
-  const token = getBearerToken(req)
-  if (token) {
-    const user = getUserByToken(token)
-    if (user) {
-      req.user = user
-      req.authToken = token
+export async function optionalAuth(req: Request, _res: Response, next: NextFunction) {
+  try {
+    const token = getBearerToken(req)
+    if (token) {
+      const user = await getUserByToken(token)
+      if (user) {
+        req.user = user
+        req.authToken = token
+      }
     }
+    next()
+  } catch (error) {
+    next(error)
   }
-  next()
 }
 
-export function requireAuth(req: Request, res: Response, next: NextFunction) {
-  optionalAuth(req, res, () => {
+export async function requireAuth(req: Request, res: Response, next: NextFunction) {
+  await optionalAuth(req, res, (error?: unknown) => {
+    if (error) {
+      next(error)
+      return
+    }
     if (!req.user) {
       res.status(401).json({ error: 'UNAUTHORIZED', message: 'Войдите в аккаунт.' })
       return
