@@ -11,6 +11,10 @@ node_modules
 dist
 dist-ssr
 server/exports/
+data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
 *.local
 
 # Editor directories and files

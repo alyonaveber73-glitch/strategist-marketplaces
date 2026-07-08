@@ -10,7 +10,7 @@ import { analyzeFiles, parseUnitEconomicsBuffer } from './analyzer.js'
 import { exportAnalysisPdf, exportAnalysisXlsx } from './exporters.js'
 import { buildDataQuality } from './quality.js'
 import { buildAiStrategy, buildImageAiStrategy } from './strategy.js'
-import { optionalAuth, requireAuth } from './auth.js'
+import { optionalAuth, requireAuth, requireSubscription } from './auth.js'
 import { authenticateUser, createSession, createUser, deleteSession, getAnalysis, listAnalyses, listPayments, listUnitEconomics, saveAnalysis, savePayment, storageEngine, upsertUnitEconomics } from './db.js'
 import { createYooKassaPayment, isPlanKey, plans } from './payments.js'
 import type { Analysis } from './types.js'
@@ -123,11 +123,11 @@ app.post('/api/payments/yookassa', requireAuth, async (req, res, next) => {
   }
 })
 
-app.get('/api/unit-economics', async (_req, res) => {
+app.get('/api/unit-economics', requireSubscription, async (_req, res) => {
   res.json({ items: await listUnitEconomics() })
 })
 
-app.post('/api/unit-economics', async (req, res) => {
+app.post('/api/unit-economics', requireSubscription, async (req, res) => {
   const rawItems = Array.isArray(req.body.items) ? req.body.items : [req.body]
   const items = rawItems.map((item) => ({
     sku: String(item.sku || ''),
@@ -141,7 +141,7 @@ app.post('/api/unit-economics', async (req, res) => {
   res.json({ items: await upsertUnitEconomics(items) })
 })
 
-app.post('/api/unit-economics/import', upload.single('file'), async (req, res) => {
+app.post('/api/unit-economics/import', requireSubscription, upload.single('file'), async (req, res) => {
   if (!req.file) {
     res.status(400).json({ error: 'FILE_REQUIRED' })
     return
@@ -151,7 +151,7 @@ app.post('/api/unit-economics/import', upload.single('file'), async (req, res) =
 })
 
 
-app.post('/api/analyze-image', upload.single('file'), async (req, res, next) => {
+app.post('/api/analyze-image', requireSubscription, upload.single('file'), async (req, res, next) => {
   try {
     if (!req.file) {
       res.status(400).json({ error: 'FILE_REQUIRED', message: 'Загрузите PNG, JPG или WEBP изображение.' })
@@ -203,7 +203,7 @@ app.post('/api/analyze-image', upload.single('file'), async (req, res, next) => 
   }
 })
 
-app.post('/api/analyze', upload.array('files', 8), async (req, res, next) => {
+app.post('/api/analyze', requireSubscription, upload.array('files', 8), async (req, res, next) => {
   try {
     const files = req.files as Express.Multer.File[] | undefined
     if (!files?.length) {
@@ -250,11 +250,11 @@ app.post('/api/analyze', upload.array('files', 8), async (req, res, next) => {
   }
 })
 
-app.get('/api/analyses', async (_req, res) => {
+app.get('/api/analyses', requireSubscription, async (_req, res) => {
   res.json({ analyses: await listAnalyses(20) })
 })
 
-app.get('/api/export/:analysisId.xlsx', async (req, res, next) => {
+app.get('/api/export/:analysisId.xlsx', requireSubscription, async (req, res, next) => {
   try {
     const analysis = await getAnalysis(req.params.analysisId)
     if (!analysis) {
@@ -271,7 +271,7 @@ app.get('/api/export/:analysisId.xlsx', async (req, res, next) => {
   }
 })
 
-app.get('/api/export/:analysisId.pdf', async (req, res, next) => {
+app.get('/api/export/:analysisId.pdf', requireSubscription, async (req, res, next) => {
   try {
     const analysis = await getAnalysis(req.params.analysisId)
     if (!analysis) {

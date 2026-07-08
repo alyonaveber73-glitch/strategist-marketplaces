@@ -53,22 +53,22 @@ export async function createPayment(plan: string) {
 }
 
 export async function fetchAnalyses(): Promise<Analysis[]> {
-  const response = await fetch(`${API_BASE}/api/analyses`)
+  const response = await fetch(`${API_BASE}/api/analyses`, { headers: authHeaders() })
   if (!response.ok) return []
   const data = (await response.json()) as { analyses: Analysis[] }
   return data.analyses
 }
 
 export async function fetchUnitEconomics(): Promise<UnitEconomics[]> {
-  const response = await fetch(`${API_BASE}/api/unit-economics`)
+  const response = await fetch(`${API_BASE}/api/unit-economics`, { headers: authHeaders() })
   if (!response.ok) return []
   const data = (await response.json()) as { items: UnitEconomics[] }
   return data.items
 }
 
 export async function saveUnitEconomics(items: UnitEconomics[]) {
-  const response = await fetch(`${API_BASE}/api/unit-economics`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items }) })
-  if (!response.ok) throw new Error('Не удалось сохранить справочник')
+  const response = await fetch(`${API_BASE}/api/unit-economics`, { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ items }) })
+  if (!response.ok) throw new Error(await readError(response, 'Не удалось сохранить справочник'))
   const data = (await response.json()) as { items: UnitEconomics[] }
   return data.items
 }
@@ -76,15 +76,15 @@ export async function saveUnitEconomics(items: UnitEconomics[]) {
 export async function importUnitEconomics(file: File) {
   const form = new FormData()
   form.append('file', file)
-  const response = await fetch(`${API_BASE}/api/unit-economics/import`, { method: 'POST', body: form })
-  if (!response.ok) throw new Error('Не удалось импортировать справочник')
+  const response = await fetch(`${API_BASE}/api/unit-economics/import`, { method: 'POST', headers: authHeaders(), body: form })
+  if (!response.ok) throw new Error(await readError(response, 'Не удалось импортировать справочник'))
   return (await response.json()) as { items: UnitEconomics[]; imported: number }
 }
 
 export async function uploadImageAnalysis(file: File) {
   const form = new FormData()
   form.append('file', file)
-  const response = await fetch(`${API_BASE}/api/analyze-image`, { method: 'POST', body: form })
+  const response = await fetch(`${API_BASE}/api/analyze-image`, { method: 'POST', headers: authHeaders(), body: form })
   if (!response.ok) throw new Error(await readError(response, 'Не удалось проанализировать изображение'))
   return (await response.json()) as { analysis: Analysis }
 }
@@ -92,11 +92,12 @@ export async function uploadImageAnalysis(file: File) {
 export async function uploadAnalysis(files: File[]) {
   const form = new FormData()
   files.forEach((file) => form.append('files', file))
-  const response = await fetch(`${API_BASE}/api/analyze`, { method: 'POST', body: form })
+  const response = await fetch(`${API_BASE}/api/analyze`, { method: 'POST', headers: authHeaders(), body: form })
   if (!response.ok) throw new Error(await readError(response, 'Не удалось обработать файл'))
   return (await response.json()) as { analysis: Analysis }
 }
 
 export function exportUrl(analysisId: string, format: 'xlsx' | 'pdf') {
-  return `${API_BASE}/api/export/${analysisId}.${format}`
+  const tokenQuery = authToken ? `?token=${encodeURIComponent(authToken)}` : ''
+  return `${API_BASE}/api/export/${analysisId}.${format}${tokenQuery}`
 }

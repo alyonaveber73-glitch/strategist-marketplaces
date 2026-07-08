@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite'
 import fs from 'node:fs'
 import path from 'node:path'
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
-import { MongoClient, type Collection, type Db } from 'mongodb'
+import { plans, type PlanKey } from './payments.js'
 import type { Analysis, UnitEconomics } from './types.js'
 
 export type User = {
@@ -27,8 +27,6 @@ export type Payment = {
 
 type UserRecord = User & { passwordHash: string }
 type SessionRecord = { token: string; userId: string; createdAt: string; expiresAt: string }
-type AnalysisRecord = { id: string; data: Analysis; createdAt: string }
-type PaymentRecord = Payment & { rawResponse?: unknown }
 
 type UserRow = {
   id: string
@@ -51,11 +49,12 @@ type PaymentRow = {
   confirmation_url: string | null
   created_at: string
 }
-
-const mongoUri = process.env.MONGODB_URI
-const mongoDbName = process.env.MONGODB_DB || 'strategist_marketplaces'
-let mongoClient: MongoClient | null = null
-let mongoDbPromise: Promise<Db> | null = null
+type SubscriptionRow = {
+  status: string
+  plan: string | null
+  starts_at: string | null
+  expires_at: string | null
+}
 
 const dataDir = path.resolve(process.env.DATA_DIR || 'data')
 fs.mkdirSync(dataDir, { recursive: true })
@@ -71,6 +70,16 @@ sqlite.exec(`
     subscription_status TEXT DEFAULT 'inactive',
     subscription_plan TEXT,
     subscription_until TEXT
+  );
+  CREATE TABLE IF NOT EXISTS subscriptions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'inactive',
+    plan TEXT,
+    starts_at TEXT,
+    expires_at TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
   );
   CREATE TABLE IF NOT EXISTS sessions (
     token TEXT PRIMARY KEY,
@@ -106,31 +115,6 @@ sqlite.exec(`
   );
 `)
 
-async function mongoDb() {
-  if (!mongoUri) return null
-  if (!mongoDbPromise) {
-    mongoClient = new MongoClient(mongoUri)
-    mongoDbPromise = mongoClient.connect().then(async (client) => {
-      const db = client.db(mongoDbName)
-      await Promise.all([
-        db.collection<UserRecord>('users').createIndex({ email: 1 }, { unique: true }),
-        db.collection<SessionRecord>('sessions').createIndex({ token: 1 }, { unique: true }),
-        db.collection<SessionRecord>('sessions').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
-        db.collection<UnitEconomics>('unitEconomics').createIndex({ sku: 1 }, { unique: true }),
-        db.collection<AnalysisRecord>('analyses').createIndex({ createdAt: -1 }),
-        db.collection<PaymentRecord>('payments').createIndex({ userId: 1, createdAt: -1 }),
-      ])
-      return db
-    })
-  }
-  return mongoDbPromise
-}
-
-async function collection<T extends object>(name: string): Promise<Collection<T> | null> {
-  const db = await mongoDb()
-  return db ? db.collection<T>(name) : null
-}
-
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase()
 }
@@ -161,16 +145,43 @@ function publicUser(record: UserRecord): User {
   }
 }
 
+void publicUser
+
 function userFromRow(row: UserRow): User {
+  const subscription = activeSubscriptionForUser(row.id)
   return {
     id: row.id,
     email: row.email,
     name: row.name || '',
     createdAt: row.created_at,
-    subscriptionStatus: row.subscription_status || 'inactive',
-    subscriptionPlan: row.subscription_plan,
-    subscriptionUntil: row.subscription_until,
+    subscriptionStatus: subscription?.status || row.subscription_status || 'inactive',
+    subscriptionPlan: subscription?.plan || row.subscription_plan,
+    subscriptionUntil: subscription?.expires_at || row.subscription_until,
   }
+}
+
+function activeSubscriptionForUser(userId: string) {
+  return sqlite.prepare(`
+    SELECT status, plan, starts_at, expires_at
+    FROM subscriptions
+    WHERE user_id = ? AND status = 'active' AND unixepoch(expires_at) > unixepoch('now')
+    ORDER BY expires_at DESC
+    LIMIT 1
+  `).get(userId) as SubscriptionRow | undefined
+}
+
+function syncUserSubscription(userId: string) {
+  const subscription = activeSubscriptionForUser(userId)
+  if (subscription) {
+    sqlite.prepare('UPDATE users SET subscription_status = ?, subscription_plan = ?, subscription_until = ? WHERE id = ?')
+      .run('active', subscription.plan, subscription.expires_at, userId)
+    return
+  }
+  sqlite.prepare(`
+    UPDATE users
+    SET subscription_status = CASE WHEN subscription_until IS NOT NULL AND unixepoch(subscription_until) <= unixepoch('now') THEN 'expired' ELSE 'inactive' END
+    WHERE id = ? AND subscription_status = 'active'
+  `).run(userId)
 }
 
 export async function createUser(email: string, password: string, name = '') {
@@ -186,23 +197,16 @@ export async function createUser(email: string, password: string, name = '') {
     subscriptionPlan: null,
     subscriptionUntil: null,
   }
-  const users = await collection<UserRecord>('users')
-  if (users) {
-    await users.insertOne(record)
-    return publicUser(record)
-  }
   sqlite.prepare('INSERT INTO users (id, email, name, password_hash, created_at) VALUES (?, ?, ?, ?, ?)')
     .run(id, record.email, record.name, record.passwordHash, createdAt)
+  sqlite.prepare('INSERT INTO subscriptions (id, user_id, status, plan, starts_at, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(randomBytes(16).toString('hex'), id, 'inactive', null, null, null, createdAt)
   return getUserById(id)
 }
 
 export async function authenticateUser(email: string, password: string) {
-  const users = await collection<UserRecord>('users')
-  if (users) {
-    const user = await users.findOne({ email: normalizeEmail(email) })
-    return user && verifyPassword(password, user.passwordHash) ? publicUser(user) : null
-  }
   const row = sqlite.prepare('SELECT * FROM users WHERE email = ?').get(normalizeEmail(email)) as UserRow | undefined
+  if (row) syncUserSubscription(row.id)
   return row && verifyPassword(password, row.password_hash) ? userFromRow(row) : null
 }
 
@@ -211,52 +215,31 @@ export async function createSession(userId: string) {
   const createdAt = new Date()
   const expiresAt = new Date(createdAt.getTime() + 1000 * 60 * 60 * 24 * 30)
   const record: SessionRecord = { token, userId, createdAt: createdAt.toISOString(), expiresAt: expiresAt.toISOString() }
-  const sessions = await collection<SessionRecord>('sessions')
-  if (sessions) await sessions.insertOne(record)
-  else sqlite.prepare('INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)').run(token, userId, record.createdAt, record.expiresAt)
+  sqlite.prepare('INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)').run(token, userId, record.createdAt, record.expiresAt)
   return { token, expiresAt: record.expiresAt }
 }
 
 export async function getUserById(id: string) {
-  const users = await collection<UserRecord>('users')
-  if (users) {
-    const user = await users.findOne({ id })
-    return user ? publicUser(user) : null
-  }
+  syncUserSubscription(id)
   const row = sqlite.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow | undefined
   return row ? userFromRow(row) : null
 }
 
 export async function getUserByToken(token: string) {
-  const sessions = await collection<SessionRecord>('sessions')
-  if (sessions) {
-    const session = await sessions.findOne({ token })
-    if (!session || new Date(session.expiresAt).getTime() < Date.now()) return null
-    return getUserById(session.userId)
-  }
   const session = sqlite.prepare('SELECT user_id, expires_at FROM sessions WHERE token = ?').get(token) as SessionRow | undefined
   if (!session || new Date(session.expires_at).getTime() < Date.now()) return null
   return getUserById(session.user_id)
 }
 
 export async function deleteSession(token: string) {
-  const sessions = await collection<SessionRecord>('sessions')
-  if (sessions) await sessions.deleteOne({ token })
-  else sqlite.prepare('DELETE FROM sessions WHERE token = ?').run(token)
+  sqlite.prepare('DELETE FROM sessions WHERE token = ?').run(token)
 }
 
 export async function listUnitEconomics() {
-  const units = await collection<UnitEconomics>('unitEconomics')
-  if (units) return units.find({}, { projection: { _id: 0 } }).sort({ sku: 1 }).toArray()
   return sqlite.prepare('SELECT sku, name, cost, commission, acquiring, logistics, tax FROM unit_economics ORDER BY sku').all() as UnitEconomics[]
 }
 
 export async function upsertUnitEconomics(items: UnitEconomics[]) {
-  const units = await collection<UnitEconomics>('unitEconomics')
-  if (units) {
-    await Promise.all(items.filter((item) => item.sku).map((item) => units.updateOne({ sku: String(item.sku) }, { $set: { sku: String(item.sku), name: String(item.name || ''), cost: Number(item.cost || 0), commission: Number(item.commission || 0), acquiring: Number(item.acquiring || 0), logistics: Number(item.logistics || 0), tax: Number(item.tax || 0) } }, { upsert: true })))
-    return listUnitEconomics()
-  }
   const statement = sqlite.prepare(`
     INSERT INTO unit_economics (sku, name, cost, commission, acquiring, logistics, tax)
     VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -279,52 +262,50 @@ export async function upsertUnitEconomics(items: UnitEconomics[]) {
 }
 
 export async function saveAnalysis(analysis: Analysis) {
-  const analyses = await collection<AnalysisRecord>('analyses')
-  if (analyses) {
-    await analyses.updateOne({ id: analysis.id }, { $set: { id: analysis.id, data: analysis, createdAt: analysis.createdAt } }, { upsert: true })
-    return
-  }
   sqlite.prepare('INSERT INTO analyses (id, data, created_at) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data, created_at = excluded.created_at')
     .run(analysis.id, JSON.stringify(analysis), analysis.createdAt)
 }
 
 export async function getAnalysis(id: string) {
-  const analyses = await collection<AnalysisRecord>('analyses')
-  if (analyses) {
-    const row = await analyses.findOne({ id })
-    return row?.data || null
-  }
   const row = sqlite.prepare('SELECT data FROM analyses WHERE id = ?').get(id) as AnalysisRow | undefined
   return row ? JSON.parse(row.data) as Analysis : null
 }
 
 export async function listAnalyses(limit = 20) {
-  const analyses = await collection<AnalysisRecord>('analyses')
-  if (analyses) {
-    const rows = await analyses.find({}, { projection: { _id: 0, data: 1 } }).sort({ createdAt: -1 }).limit(limit).toArray()
-    return rows.map((row) => row.data)
-  }
   const rows = sqlite.prepare('SELECT data FROM analyses ORDER BY created_at DESC LIMIT ?').all(limit) as AnalysisRow[]
   return rows.map((row) => JSON.parse(row.data) as Analysis)
 }
 
 export async function savePayment(payment: Payment, rawResponse: unknown) {
-  const payments = await collection<PaymentRecord>('payments')
-  if (payments) {
-    await payments.updateOne({ id: payment.id }, { $set: { ...payment, rawResponse } }, { upsert: true })
-    return
-  }
   sqlite.prepare('INSERT INTO payments (id, user_id, plan, amount, status, confirmation_url, created_at, raw_response) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET status = excluded.status, confirmation_url = excluded.confirmation_url, raw_response = excluded.raw_response')
     .run(payment.id, payment.userId, payment.plan, payment.amount, payment.status, payment.confirmationUrl, payment.createdAt, JSON.stringify(rawResponse))
+  if (payment.status === 'succeeded' && payment.plan in plans) {
+    activateUserSubscription(payment.userId, payment.plan as PlanKey)
+  }
 }
 
 export async function listPayments(userId: string) {
-  const payments = await collection<PaymentRecord>('payments')
-  if (payments) return payments.find({ userId }, { projection: { _id: 0, rawResponse: 0 } }).sort({ createdAt: -1 }).limit(20).toArray()
   const rows = sqlite.prepare('SELECT id, user_id, plan, amount, status, confirmation_url, created_at FROM payments WHERE user_id = ? ORDER BY created_at DESC LIMIT 20').all(userId) as PaymentRow[]
   return rows.map((row) => ({ id: row.id, userId: row.user_id, plan: row.plan, amount: row.amount, status: row.status, confirmationUrl: row.confirmation_url || '', createdAt: row.created_at }))
 }
 
+export function hasActiveSubscription(user: User) {
+  return user.subscriptionStatus === 'active' && Boolean(user.subscriptionUntil) && new Date(user.subscriptionUntil!).getTime() > Date.now()
+}
+
+export function activateUserSubscription(userId: string, plan: PlanKey) {
+  const now = new Date()
+  const current = activeSubscriptionForUser(userId)
+  const baseTime = current?.expires_at ? Math.max(new Date(current.expires_at).getTime(), now.getTime()) : now.getTime()
+  const expiresAt = new Date(baseTime + plans[plan].termDays * 24 * 60 * 60 * 1000).toISOString()
+  const startsAt = now.toISOString()
+  sqlite.prepare('INSERT INTO subscriptions (id, user_id, status, plan, starts_at, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(randomBytes(16).toString('hex'), userId, 'active', plan, startsAt, expiresAt, startsAt)
+  sqlite.prepare('UPDATE users SET subscription_status = ?, subscription_plan = ?, subscription_until = ? WHERE id = ?')
+    .run('active', plan, expiresAt, userId)
+  return getUserById(userId)
+}
+
 export function storageEngine() {
-  return mongoUri ? 'mongodb' : 'sqlite'
+  return 'sqlite'
 }

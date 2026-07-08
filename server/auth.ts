@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from 'express'
-import { getUserByToken, type User } from './db.js'
+import { getUserByToken, hasActiveSubscription, type User } from './db.js'
 
 declare global {
   namespace Express {
@@ -13,7 +13,8 @@ declare global {
 export function getBearerToken(req: Request) {
   const header = req.header('authorization') || ''
   const match = header.match(/^Bearer\s+(.+)$/i)
-  return match?.[1] || ''
+  const queryToken = typeof req.query.token === 'string' ? req.query.token : ''
+  return match?.[1] || queryToken
 }
 
 export async function optionalAuth(req: Request, _res: Response, next: NextFunction) {
@@ -40,6 +41,21 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     }
     if (!req.user) {
       res.status(401).json({ error: 'UNAUTHORIZED', message: 'Войдите в аккаунт.' })
+      return
+    }
+    next()
+  })
+}
+
+export async function requireSubscription(req: Request, res: Response, next: NextFunction) {
+  await requireAuth(req, res, (error?: unknown) => {
+    if (error) {
+      next(error)
+      return
+    }
+    if (!req.user) return
+    if (!hasActiveSubscription(req.user)) {
+      res.status(403).json({ error: 'SUBSCRIPTION_REQUIRED', message: 'Для доступа нужна активная подписка.' })
       return
     }
     next()
