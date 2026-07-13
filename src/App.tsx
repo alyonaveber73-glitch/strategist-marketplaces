@@ -553,47 +553,7 @@ export default function App() {
               </strong>
             </>
           )}
-          <div className="hero-price-list">
-            <p>Подписка</p>
-            {subscriptionPlans.map((plan) => (
-              <button key={plan.name} onClick={() => setPage("subscription")}>
-                <span>
-                  {plan.name} · {plan.term}
-                </span>
-                <strong>{plan.price}</strong>
-              </button>
-            ))}
-          </div>
         </aside>
-      </section>
-      <section className="panel home-pricing-panel">
-        <div className="panel-header">
-          <h2>Тарифы подписки</h2>
-          <p>
-            Цены видны сразу на главной. Отдельная страница «Подписка» тоже
-            остаётся в верхнем меню.
-          </p>
-        </div>
-        <div className="pricing-grid compact-pricing">
-          {subscriptionPlans.map((plan) => (
-            <article className="price-card" key={plan.name}>
-              <div>
-                <span>{plan.term}</span>
-                <h2>{plan.name}</h2>
-                <strong>{plan.price}</strong>
-                <p>{plan.description}</p>
-              </div>
-              <ul className="insight-list">
-                {plan.features.map((feature) => (
-                  <li key={feature}>{feature}</li>
-                ))}
-              </ul>
-              <button onClick={() => buyPlan(plan.id)}>
-                {paymentLoading === plan.id ? "Создаю оплату…" : "Купить"}
-              </button>
-            </article>
-          ))}
-        </div>
       </section>
       {hasUploadedAnalysis && (
         <>
@@ -835,11 +795,6 @@ export default function App() {
       <div className="subscription-hero panel">
         <p className="eyebrow">Подписка</p>
         <h1>Выберите срок доступа</h1>
-        <p className="hero-text">
-          Простая страница тарифов для MVP: цена, срок подписки и что получает
-          клиент. Кнопки создают платёж ЮKassa и переводят клиента на защищённую
-          страницу оплаты.
-        </p>
       </div>
       <div className="pricing-grid">
         {subscriptionPlans.map((plan) => (
@@ -858,18 +813,11 @@ export default function App() {
             <button onClick={() => buyPlan(plan.id)}>
               {paymentLoading === plan.id
                 ? "Создаю оплату…"
-                : "Оплатить через ЮKassa"}
+                : "Купить"}
             </button>
           </article>
         ))}
       </div>
-      <section className="panel subscription-note">
-        <h2>Оплата уже подключена на уровне API</h2>
-        <p>
-          Для боевого режима осталось добавить в окружение ключи ЮKassa и
-          webhook подтверждения успешной оплаты.
-        </p>
-      </section>
     </section>
   );
 
