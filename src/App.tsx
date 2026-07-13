@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import {
+  checkPayment,
   createPayment,
   exportUrl,
   fetchAnalyses,
@@ -23,7 +24,7 @@ import type {
   User,
 } from "./types/analytics";
 
-type Page = "home" | "subscription" | "account";
+type Page = "home" | "subscription" | "account" | "testoplata";
 type AuthMode = "login" | "register";
 
 const emptyTotals: Totals = {
@@ -238,7 +239,7 @@ export default function App() {
   const [serverMessage, setServerMessage] = useState(
     "Готова обработать отчёты Ozon/WB",
   );
-  const [page, setPage] = useState<Page>("home");
+  const [page, setPage] = useState<Page>(() => window.location.pathname.startsWith("/testoplata") ? "testoplata" : "home");
   const [scrollAfterUpload, setScrollAfterUpload] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [authEmail, setAuthEmail] = useState("");
@@ -247,6 +248,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [paymentLoading, setPaymentLoading] = useState("");
+  const [testPaymentMessage, setTestPaymentMessage] = useState("Тестовая страница оплаты подписки за 1 ₽.");
   const resultsRef = useRef<HTMLElement | null>(null);
 
   const rows = analysis.rows;
@@ -291,6 +293,25 @@ export default function App() {
       })
       .catch(() => null);
   }, []);
+
+  useEffect(() => {
+    if (page !== "testoplata") return;
+    const params = new URLSearchParams(window.location.search);
+    const paymentId = params.get("paymentId") || localStorage.getItem("pendingTestPaymentId");
+    if (!paymentId) return;
+    checkPayment(paymentId)
+      .then((result) => {
+        setUser(result.user);
+        if (result.payment.status === "succeeded") localStorage.removeItem("pendingTestPaymentId");
+        setPayments((items) => [result.payment, ...items.filter((item) => item.id !== result.payment.id)]);
+        setTestPaymentMessage(
+          result.payment.status === "succeeded"
+            ? "Оплата прошла, подписка активирована ✅"
+            : `Платёж пока в статусе: ${result.payment.status}. Если оплатили только что, обновите страницу через пару секунд.`,
+        );
+      })
+      .catch((error) => setTestPaymentMessage(error instanceof Error ? error.message : "Не удалось проверить тестовую оплату"));
+  }, [page]);
 
   useEffect(() => {
     if (!scrollAfterUpload || !hasUploadedAnalysis) return;
@@ -404,7 +425,7 @@ export default function App() {
           ? "Аккаунт создан. Можно покупать подписку."
           : "Вы вошли в аккаунт.",
       );
-      setPage("account");
+      if (page !== "testoplata") setPage("account");
     } catch (error) {
       setServerMessage(
         error instanceof Error ? error.message : "Не получилось войти",
@@ -441,6 +462,31 @@ export default function App() {
       setServerMessage(
         error instanceof Error ? error.message : "Не получилось создать платёж",
       );
+    } finally {
+      setPaymentLoading("");
+    }
+  }
+
+  async function buyTestPlan() {
+    if (!user) {
+      setTestPaymentMessage("Сначала войдите или зарегистрируйтесь ниже — потом нажмите оплату 1 ₽.");
+      return;
+    }
+    setPaymentLoading("test");
+    try {
+      const returnUrl = `${window.location.origin}/testoplata`;
+      const result = await createPayment("test", returnUrl);
+      setPayments((items) => [result.payment, ...items]);
+      localStorage.setItem("pendingTestPaymentId", result.payment.id);
+      if (result.payment.confirmationUrl) {
+        const url = new URL(result.payment.confirmationUrl);
+        if (url.origin === window.location.origin) url.searchParams.set("paymentId", result.payment.id);
+        window.location.href = url.toString();
+      } else {
+        setTestPaymentMessage("Платёж создан, но ссылка на оплату не пришла от ЮKassa.");
+      }
+    } catch (error) {
+      setTestPaymentMessage(error instanceof Error ? error.message : "Не получилось создать тестовую оплату");
     } finally {
       setPaymentLoading("");
     }
@@ -912,6 +958,62 @@ export default function App() {
     </section>
   );
 
+  const testPaymentPage = (
+    <section className="subscription-page test-payment-page">
+      <div className="subscription-hero panel">
+        <p className="eyebrow">Тест оплаты</p>
+        <h1>Подписка за 1 ₽</h1>
+        <p className="hero-text">
+          Скрытая страница для проверки ЮKassa: оплачиваем 1 ₽, возвращаемся сюда,
+          сайт проверяет платёж и активирует подписку на 30 дней.
+        </p>
+        <p className="server-message">{testPaymentMessage}</p>
+      </div>
+
+      <div className="pricing-grid compact-pricing">
+        <article className="price-card test-price-card">
+          <div>
+            <span>30 дней</span>
+            <h2>Тестовая подписка</h2>
+            <strong>1 ₽</strong>
+            <p>Для проверки оплаты и доступа к функциям сайта.</p>
+          </div>
+          <ul className="insight-list">
+            <li>реальный переход на оплату ЮKassa</li>
+            <li>после успешной оплаты подписка активируется</li>
+            <li>страница не вынесена в основное меню</li>
+          </ul>
+          <button onClick={buyTestPlan}>
+            {paymentLoading === "test" ? "Создаю оплату…" : "Оплатить 1 ₽"}
+          </button>
+        </article>
+        <section className="account-page panel test-auth-panel">
+          <p className="eyebrow">Аккаунт</p>
+          {user ? (
+            <div className="account-box">
+              <h2>{user.name || "Пользователь"}</h2>
+              <p>{user.email}</p>
+              <p>Статус подписки: <strong>{user.subscriptionStatus}</strong></p>
+              <button className="plain-button" onClick={logout}>Выйти</button>
+            </div>
+          ) : (
+            <div className="auth-panel">
+              <div className="auth-tabs">
+                <button className={authMode === "login" ? "active" : ""} onClick={() => setAuthMode("login")}>Вход</button>
+                <button className={authMode === "register" ? "active" : ""} onClick={() => setAuthMode("register")}>Регистрация</button>
+              </div>
+              {authMode === "register" && <input className="project-input" placeholder="Имя" value={authName} onChange={(event) => setAuthName(event.target.value)} />}
+              <input className="project-input" placeholder="Email" type="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} />
+              <input className="project-input" placeholder="Пароль" type="password" value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} />
+              <button className="upload-button" onClick={submitAuth}>{authMode === "register" ? "Создать аккаунт" : "Войти"}</button>
+              <p className="server-message">После входа нажмите “Оплатить 1 ₽”.</p>
+            </div>
+          )}
+        </section>
+      </div>
+    </section>
+  );
+
   return (
     <main className="page-shell">
       <header className="site-header">
@@ -943,7 +1045,9 @@ export default function App() {
         ? uploadPage
         : page === "subscription"
           ? subscriptionPage
-          : accountPage}
+          : page === "account"
+            ? accountPage
+            : testPaymentPage}
     </main>
   );
 }

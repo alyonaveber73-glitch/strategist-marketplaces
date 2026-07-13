@@ -46,10 +46,16 @@ export async function fetchMe(): Promise<{ user: User; payments: Payment[] } | n
   return await response.json() as { user: User; payments: Payment[] }
 }
 
-export async function createPayment(plan: string) {
-  const response = await fetch(`${API_BASE}/api/payments/yookassa`, { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ plan, returnUrl: window.location.origin }) })
+export async function createPayment(plan: string, returnUrl = window.location.origin) {
+  const response = await fetch(`${API_BASE}/api/payments/yookassa`, { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ plan, returnUrl }) })
   if (!response.ok) throw new Error(await readError(response, 'Не удалось создать платёж'))
   return await response.json() as { payment: Payment }
+}
+
+export async function checkPayment(paymentId: string) {
+  const response = await fetch(`${API_BASE}/api/payments/check`, { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ paymentId }) })
+  if (!response.ok) throw new Error(await readError(response, 'Не удалось проверить платёж'))
+  return await response.json() as { payment: Payment; user: User }
 }
 
 export async function fetchAnalyses(): Promise<Analysis[]> {

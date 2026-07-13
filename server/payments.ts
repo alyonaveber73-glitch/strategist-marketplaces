@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto'
 
-export type PlanKey = 'start' | 'pro' | 'business'
+export type PlanKey = 'start' | 'pro' | 'business' | 'test'
 
 export const plans: Record<PlanKey, { name: string; amount: number; termDays: number }> = {
   start: { name: 'Старт', amount: 990, termDays: 30 },
   pro: { name: 'Профи', amount: 2490, termDays: 90 },
   business: { name: 'Бизнес', amount: 7900, termDays: 365 },
+  test: { name: 'Тестовая подписка', amount: 1, termDays: 30 },
 }
 
 export function isPlanKey(value: string): value is PlanKey {
@@ -75,4 +76,20 @@ export async function createYooKassaPayment(params: { plan: PlanKey; userId: str
     amount: plan.amount,
     raw: data,
   }
+}
+
+export async function fetchYooKassaPayment(paymentId: string) {
+  const shopId = process.env.YOOKASSA_SHOP_ID
+  const secretKey = process.env.YOOKASSA_SECRET_KEY
+  if (!shopId || !secretKey) throw new Error('YOOKASSA_NOT_CONFIGURED')
+
+  const response = await fetch(`https://api.yookassa.ru/v3/payments/${encodeURIComponent(paymentId)}`, {
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${shopId}:${secretKey}`).toString('base64')}`,
+      'Content-Type': 'application/json',
+    },
+  })
+  const data = await response.json().catch(() => ({})) as YooKassaPayment & { amount?: { value?: string }; description?: string }
+  if (!response.ok) throw new Error(data.description || 'Не удалось проверить платёж ЮKassa')
+  return data
 }

@@ -11,8 +11,8 @@ import { exportAnalysisPdf, exportAnalysisXlsx } from './exporters.js'
 import { buildDataQuality } from './quality.js'
 import { buildAiStrategy, buildImageAiStrategy } from './strategy.js'
 import { optionalAuth, requireAuth, requireSubscription } from './auth.js'
-import { authenticateUser, createSession, createUser, deleteSession, getAnalysis, listAnalyses, listPayments, listUnitEconomics, saveAnalysis, savePayment, storageEngine, upsertUnitEconomics } from './db.js'
-import { createYooKassaPayment, isPlanKey, plans } from './payments.js'
+import { activateUserSubscription, authenticateUser, createSession, createUser, deleteSession, getAnalysis, getPaymentForUser, listAnalyses, listPayments, listUnitEconomics, saveAnalysis, savePayment, storageEngine, upsertUnitEconomics } from './db.js'
+import { createYooKassaPayment, fetchYooKassaPayment, isPlanKey, plans, type PlanKey } from './payments.js'
 import type { Analysis } from './types.js'
 
 const app = express()
@@ -118,6 +118,36 @@ app.post('/api/payments/yookassa', requireAuth, async (req, res, next) => {
     const savedPayment = { id: payment.id, userId: req.user!.id, plan, amount: payment.amount, status: payment.status, confirmationUrl: payment.confirmationUrl, createdAt: new Date().toISOString() }
     await savePayment(savedPayment, payment.raw)
     res.json({ payment: savedPayment })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.post('/api/payments/check', requireAuth, async (req, res, next) => {
+  try {
+    const paymentId = String(req.body.paymentId || req.query.paymentId || '')
+    if (!paymentId) {
+      res.status(400).json({ error: 'PAYMENT_ID_REQUIRED', message: 'Не найден ID платежа.' })
+      return
+    }
+    const savedPayment = await getPaymentForUser(paymentId, req.user!.id)
+    if (!savedPayment) {
+      res.status(404).json({ error: 'PAYMENT_NOT_FOUND', message: 'Платёж не найден для текущего пользователя.' })
+      return
+    }
+
+    if (savedPayment.status === 'succeeded') {
+      res.json({ payment: savedPayment, user: req.user })
+      return
+    }
+
+    const checked = await fetchYooKassaPayment(paymentId)
+    const updatedPayment = { ...savedPayment, status: checked.status || savedPayment.status }
+    await savePayment(updatedPayment, checked)
+    const user = updatedPayment.status === 'succeeded' && isPlanKey(updatedPayment.plan)
+      ? await activateUserSubscription(req.user!.id, updatedPayment.plan as PlanKey)
+      : req.user
+    res.json({ payment: updatedPayment, user })
   } catch (error) {
     next(error)
   }

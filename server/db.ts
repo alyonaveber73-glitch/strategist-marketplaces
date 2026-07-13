@@ -289,6 +289,11 @@ export async function listPayments(userId: string) {
   return rows.map((row) => ({ id: row.id, userId: row.user_id, plan: row.plan, amount: row.amount, status: row.status, confirmationUrl: row.confirmation_url || '', createdAt: row.created_at }))
 }
 
+export async function getPaymentForUser(paymentId: string, userId: string) {
+  const row = sqlite.prepare('SELECT id, user_id, plan, amount, status, confirmation_url, created_at FROM payments WHERE id = ? AND user_id = ?').get(paymentId, userId) as PaymentRow | undefined
+  return row ? { id: row.id, userId: row.user_id, plan: row.plan, amount: row.amount, status: row.status, confirmationUrl: row.confirmation_url || '', createdAt: row.created_at } : null
+}
+
 export function hasActiveSubscription(user: User) {
   return user.subscriptionStatus === 'active' && Boolean(user.subscriptionUntil) && new Date(user.subscriptionUntil!).getTime() > Date.now()
 }
