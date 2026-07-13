@@ -13,10 +13,11 @@ import { buildAiStrategy, buildImageAiStrategy } from './strategy.js'
 import { optionalAuth, requireAuth, requireSubscription } from './auth.js'
 import { activateUserSubscription, authenticateUser, createSession, createUser, deleteSession, getAnalysis, getPaymentForUser, listAnalyses, listPayments, listUnitEconomics, saveAnalysis, savePayment, storageEngine, upsertUnitEconomics } from './db.js'
 import { createYooKassaPayment, fetchYooKassaPayment, isPlanKey, plans, type PlanKey } from './payments.js'
+import { rateLimit, securityHeaders, validateSafeUrl } from './security.js'
 import type { Analysis } from './types.js'
 
 const app = express()
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } })
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024, files: 8, fields: 20 } })
 const PORT = Number(process.env.PORT || 8787)
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const distPath = path.resolve(__dirname, '../dist')
@@ -46,8 +47,15 @@ function decodeUploadFileName(fileName: string) {
   }
 }
 
+app.set('trust proxy', 1)
+app.disable('x-powered-by')
+app.use(securityHeaders)
 app.use(cors())
-app.use(express.json({ limit: '5mb' }))
+app.use(rateLimit({ windowMs: 60_000, max: 240 }))
+app.use('/api/auth', rateLimit({ windowMs: 15 * 60_000, max: 20, message: 'Слишком много попыток входа. Попробуйте позже.' }))
+app.use('/api/payments', rateLimit({ windowMs: 60_000, max: 30 }))
+app.use('/api/analyze', rateLimit({ windowMs: 60_000, max: 10, message: 'Слишком много тяжёлых загрузок. Попробуйте через минуту.' }))
+app.use(express.json({ limit: '1mb' }))
 
 app.use(express.static(distPath, {
   setHeaders(res) {
@@ -63,10 +71,10 @@ app.get('/api/health', (_req, res) => {
 
 app.post('/api/auth/register', async (req, res, next) => {
   try {
-    const email = String(req.body.email || '')
+    const email = String(req.body.email || '').trim().slice(0, 254)
     const password = String(req.body.password || '')
-    const name = String(req.body.name || '')
-    if (!email.includes('@') || password.length < 6) {
+    const name = String(req.body.name || '').trim().slice(0, 80)
+    if (!email.includes('@') || email.length > 254 || password.length < 6 || password.length > 200) {
       res.status(400).json({ error: 'INVALID_AUTH_DATA', message: 'Укажите email и пароль от 6 символов.' })
       return
     }
@@ -84,7 +92,7 @@ app.post('/api/auth/register', async (req, res, next) => {
 })
 
 app.post('/api/auth/login', async (req, res) => {
-  const user = await authenticateUser(String(req.body.email || ''), String(req.body.password || ''))
+  const user = await authenticateUser(String(req.body.email || '').trim().slice(0, 254), String(req.body.password || ''))
   if (!user) {
     res.status(401).json({ error: 'INVALID_CREDENTIALS', message: 'Неверный email или пароль.' })
     return
@@ -113,7 +121,7 @@ app.post('/api/payments/yookassa', requireAuth, async (req, res, next) => {
       res.status(400).json({ error: 'INVALID_PLAN', message: 'Выберите тариф.' })
       return
     }
-    const returnUrl = String(req.body.returnUrl || process.env.PUBLIC_URL || 'http://strateg-marketplaces.ru/')
+    const returnUrl = validateSafeUrl(String(req.body.returnUrl || ''), process.env.PUBLIC_URL || 'http://strateg-marketplaces.ru/')
     const payment = await createYooKassaPayment({ plan, userId: req.user!.id, email: req.user!.email, returnUrl })
     const savedPayment = { id: payment.id, userId: req.user!.id, plan, amount: payment.amount, status: payment.status, confirmationUrl: payment.confirmationUrl, createdAt: new Date().toISOString() }
     await savePayment(savedPayment, payment.raw)
@@ -125,7 +133,7 @@ app.post('/api/payments/yookassa', requireAuth, async (req, res, next) => {
 
 app.post('/api/payments/check', requireAuth, async (req, res, next) => {
   try {
-    const paymentId = String(req.body.paymentId || req.query.paymentId || '')
+    const paymentId = String(req.body.paymentId || req.query.paymentId || '').slice(0, 120)
     if (!paymentId) {
       res.status(400).json({ error: 'PAYMENT_ID_REQUIRED', message: 'Не найден ID платежа.' })
       return
@@ -158,10 +166,10 @@ app.get('/api/unit-economics', requireSubscription, async (_req, res) => {
 })
 
 app.post('/api/unit-economics', requireSubscription, async (req, res) => {
-  const rawItems = Array.isArray(req.body.items) ? req.body.items : [req.body]
+  const rawItems = (Array.isArray(req.body.items) ? req.body.items : [req.body]).slice(0, 1000)
   const items = rawItems.map((item) => ({
-    sku: String(item.sku || ''),
-    name: String(item.name || ''),
+    sku: String(item.sku || '').trim().slice(0, 120),
+    name: String(item.name || '').trim().slice(0, 240),
     cost: Number(item.cost || 0),
     commission: Number(item.commission || 0),
     acquiring: Number(item.acquiring || 0),
@@ -324,6 +332,10 @@ app.get(/^(?!\/api).*/, (_req, res) => {
 
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(error)
+  if (error instanceof multer.MulterError) {
+    res.status(400).json({ error: 'UPLOAD_LIMIT', message: 'Файл слишком большой или превышен лимит загрузки.' })
+    return
+  }
   res.status(500).json({ error: 'SERVER_ERROR' })
 })
 

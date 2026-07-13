@@ -272,7 +272,8 @@ export async function getAnalysis(id: string) {
 }
 
 export async function listAnalyses(limit = 20) {
-  const rows = sqlite.prepare('SELECT data FROM analyses ORDER BY created_at DESC LIMIT ?').all(limit) as AnalysisRow[]
+  const safeLimit = Math.min(Math.max(Number(limit) || 20, 1), 100)
+  const rows = sqlite.prepare('SELECT data FROM analyses ORDER BY created_at DESC LIMIT ?').all(safeLimit) as AnalysisRow[]
   return rows.map((row) => JSON.parse(row.data) as Analysis)
 }
 
